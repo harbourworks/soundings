@@ -9,7 +9,7 @@ import { emptyAnswers, setAnswer } from "../src/questions/answers-file.js";
 import { verifyText } from "../src/verify/verify.js";
 import { DRAFT_NOTICE } from "../src/export/notice.js";
 import { run, type CliDeps } from "../src/cli/main.js";
-import { cleanupProjects, project } from "./helpers.js";
+import { cleanupProjects, licensed, project } from "./helpers.js";
 
 cleanupProjects();
 
@@ -207,7 +207,8 @@ describe("soundings answer / verify commands", () => {
   function harness(cwd: string) {
     const out: string[] = [];
     const err: string[] = [];
-    const deps: CliDeps = { out: (s) => out.push(s), err: (s) => err.push(s), env: {}, cwd, now: () => NOW };
+    const lic = licensed();
+    const deps: CliDeps = { out: (s) => out.push(s), err: (s) => err.push(s), env: lic.env, provider: lic.provider, cwd, now: () => NOW };
     return { out, err, deps };
   }
   async function workspace() {

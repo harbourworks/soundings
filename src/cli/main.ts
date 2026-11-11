@@ -15,6 +15,11 @@ import { renderQuestionsSummary } from "../reporters/questions.js";
 import { renderTerminal } from "../reporters/terminal.js";
 import { scan } from "../scanner/scan.js";
 import { VERSION } from "../version.js";
+import { polarSettings } from "../licensing/config.js";
+import type { LicenceProvider } from "../licensing/provider.js";
+import { PolarProvider } from "../licensing/polar.js";
+import { LicenceStore, userConfigDir } from "../licensing/store.js";
+import { buy, login, logout, requireFeature, status, type LicenceCtx } from "./licence.js";
 
 export interface CliDeps {
   out: (s: string) => void;
@@ -24,6 +29,12 @@ export interface CliDeps {
   now: () => Date;
   /** Asks one question at a terminal. Absent when nobody can answer (piped input, CI). */
   ask?: (pending: Pending, index: number, total: number) => Promise<string | null>;
+  /** Defaults to Polar. Tests pass a MockProvider. */
+  provider?: LicenceProvider;
+  /** A person at a terminal (not CI, not piped): links may be opened in the browser. */
+  interactive?: boolean;
+  /** Opens a link in the browser; false if it couldn't. Tests pass a fake. */
+  openUrl?: (url: string) => boolean;
 }
 
 const HELP = `
@@ -32,9 +43,17 @@ const HELP = `
   ${pc.bold("Usage")}
     soundings [scan] [path]     Scan a project (default: current folder) and save its evidence
     soundings questions         Ask only what the code can't answer, and save your answers
+    soundings verify <file>     Check any text against the evidence: every statement needs a source
+
+  ${pc.bold("Pro")}
     soundings answers           Answer the standard question bank from evidence and your answers
     soundings answer <file.csv> Fill in a client questionnaire from the bank (never guesses)
-    soundings verify <file>     Check any text against the evidence: every statement needs a source
+
+  ${pc.bold("Plans")}
+    soundings buy               See the plans and open the checkout
+    soundings login <key>       Turn on your licence on this machine
+    soundings logout            Turn it off and free this machine's slot
+    soundings status            Show your plan and licence state
 
   ${pc.bold("Options")}
     --output <file>             Where to save the evidence or the answers document
@@ -51,13 +70,16 @@ const HELP = `
                                 profile.… or override.<question-id> to replace what the scan says
     --no-locations              Answers: leave file paths out of the sources
     --strict                    Verify: treat warnings as failures
+    --offline                   Never call the licence server (uses the saved check)
+    --no-open                   Don't open links in the browser
     -h, --help    -v, --version
 
-  ${pc.bold("Exit codes")}  0 done · 1 verify found problems · 2 error
-  ${pc.dim("Scanning makes no network calls. Soundings produces drafts, not legal advice.")}
+  ${pc.bold("Exit codes")}  0 done · 1 verify found problems · 2 error · 3 needs a paid plan
+  ${pc.dim("Free commands make no network calls. In CI, set SOUNDINGS_LICENCE to your key instead of logging in.")}
+  ${pc.dim("Soundings produces drafts, not legal advice.")}
 `;
 
-const COMMANDS = new Set(["scan", "questions", "answers", "answer", "verify"]);
+const COMMANDS = new Set(["scan", "questions", "answers", "answer", "verify", "buy", "login", "logout", "status"]);
 
 export async function run(argv: string[], deps: CliDeps): Promise<number> {
   let parsed;
@@ -77,6 +99,9 @@ export async function run(argv: string[], deps: CliDeps): Promise<number> {
         set: { type: "string", multiple: true },
         "no-locations": { type: "boolean" },
         strict: { type: "boolean" },
+        offline: { type: "boolean" },
+        "no-open": { type: "boolean" },
+        label: { type: "string" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean", short: "v" },
       },
@@ -102,8 +127,16 @@ export async function run(argv: string[], deps: CliDeps): Promise<number> {
 
   try {
     if (command === "questions") return await runQuestionsCommand(values, deps);
-    if (command === "answers") return runAnswersCommand(values, deps);
-    if (command === "answer") return runAnswerCommand(values, target, deps);
+    if (["buy", "login", "logout", "status", "answers", "answer"].includes(command)) {
+      const lic = licenceCtx(values, deps);
+      if (command === "buy") return buy(lic);
+      if (command === "login") return await login(target, lic);
+      if (command === "logout") return await logout(lic);
+      if (command === "status") return await status(lic);
+      const gate = await requireFeature(command === "answers" ? "answers" : "questionnaire-import", command, lic);
+      if (gate !== null) return gate;
+      return command === "answers" ? runAnswersCommand(values, deps) : runAnswerCommand(values, target, deps);
+    }
     if (command === "verify") return runVerifyCommand(values, target, deps);
     return runScanCommand(values, target, deps);
   } catch (err) {
@@ -120,6 +153,22 @@ export async function run(argv: string[], deps: CliDeps): Promise<number> {
 }
 
 type Values = Record<string, string | boolean | string[] | undefined>;
+
+function licenceCtx(values: Values, deps: CliDeps): LicenceCtx {
+  return {
+    out: deps.out,
+    err: deps.err,
+    env: deps.env,
+    now: deps.now,
+    provider: deps.provider ?? new PolarProvider(polarSettings(deps.env)),
+    store: new LicenceStore(userConfigDir(deps.env)),
+    offline: Boolean(values.offline),
+    ...(values.label ? { label: values.label as string } : {}),
+    noOpen: Boolean(values["no-open"]),
+    interactive: Boolean(deps.interactive),
+    ...(deps.openUrl ? { openUrl: deps.openUrl } : {}),
+  };
+}
 
 function runScanCommand(values: Values, target: string | undefined, deps: CliDeps): number {
   const format = (values.format as string | undefined) ?? "terminal";

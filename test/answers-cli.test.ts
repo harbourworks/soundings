@@ -5,7 +5,7 @@ import { run, type CliDeps } from "../src/cli/main.js";
 import { AnswersFile } from "../src/evidence/schema.js";
 import { extractRefs } from "../src/evidence/refs.js";
 import { DRAFT_NOTICE } from "../src/export/notice.js";
-import { cleanupProjects, project, rand } from "./helpers.js";
+import { cleanupProjects, licensed, project, rand } from "./helpers.js";
 
 cleanupProjects();
 
@@ -16,10 +16,12 @@ function harness(cwd: string, asks?: Array<string | null>) {
   const err: string[] = [];
   const asked: string[] = [];
   const queue = asks ? [...asks] : undefined;
+  const lic = licensed();
   const deps: CliDeps = {
     out: (s) => out.push(s),
     err: (s) => err.push(s),
-    env: {},
+    env: lic.env,
+    provider: lic.provider,
     cwd,
     now: () => new Date("2026-11-11T11:30:00Z"),
     ...(queue ? { ask: async (p) => (asked.push(p.key), queue.shift() ?? null) } : {}),
