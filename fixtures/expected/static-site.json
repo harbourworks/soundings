@@ -26,6 +26,56 @@
         "index.html"
       ],
       "confidence": "medium"
+    },
+    {
+      "kind": "client_side_exposure",
+      "subject": "Browser-exposed secrets",
+      "detector": "client-exposure/public-secret-name",
+      "key": "project",
+      "files": [
+        "index.html"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "kind": "ai_provider",
+      "subject": "No AI provider found",
+      "detector": "ai-provider/none-found",
+      "key": "project",
+      "files": [
+        "index.html"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "kind": "data_store",
+      "subject": "No database found",
+      "detector": "data-store/none-found",
+      "key": "project",
+      "files": [
+        "index.html"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "kind": "auth",
+      "subject": "No sign-in found",
+      "detector": "auth/none-found",
+      "key": "project",
+      "files": [
+        "index.html"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "kind": "logging",
+      "subject": "Request-body logging",
+      "detector": "logging/request-body",
+      "key": "project",
+      "files": [
+        "index.html"
+      ],
+      "confidence": "medium"
     }
   ],
   "unknowns": [

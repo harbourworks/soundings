@@ -33,7 +33,18 @@ const publicSecretNames: Detector = {
         });
       }
     }
-    return facts;
+    if (facts.length > 0) return facts;
+    return [
+      {
+        kind: "client_side_exposure",
+        subject: "Browser-exposed secrets",
+        claim: "No secret-named variables with a public prefix were found in the scanned code.",
+        claimType: "not-found",
+        confidence: "medium",
+        detector: "client-exposure/public-secret-name",
+        key: "project",
+      },
+    ];
   },
 };
 

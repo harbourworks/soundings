@@ -15,8 +15,8 @@ function isLogger(chain: string[] | null): boolean {
 const requestBodyLogging: Detector = {
   id: "logging/request-body",
   skipReason: () => null,
-  run: (ctx) =>
-    ctx.js.flatMap((f): FactDraft[] => {
+  run: (ctx) => {
+    const found = ctx.js.flatMap((f): FactDraft[] => {
       const requestVars = requestVariables(f.ast, REQUEST_BODY);
       for (const c of calls(f.ast)) {
         if (!isLogger(c.chain) || c.node.type !== "CallExpression") continue;
@@ -38,7 +38,20 @@ const requestBodyLogging: Detector = {
         ];
       }
       return [];
-    }),
+    });
+    if (found.length > 0) return found;
+    return [
+      {
+        kind: "logging",
+        subject: "Request-body logging",
+        claim: "No logging of request bodies was found in the scanned code.",
+        claimType: "not-found",
+        confidence: "medium",
+        detector: "logging/request-body",
+        key: "project",
+      },
+    ];
+  },
 };
 
 /** `{ body: req.body }` and `[req.body]`: request data nested inside an argument. */

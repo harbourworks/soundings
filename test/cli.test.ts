@@ -76,6 +76,7 @@ describe("soundings scan", () => {
     const h = harness(project({}));
     expect(await run([root, "--format", "json", "--no-write"], h.deps)).toBe(0);
     const e = EvidenceFile.parse(JSON.parse(h.out.join("\n")));
-    expect(e.facts.some((f) => f.kind === "ai_provider")).toBe(false);
+    expect(e.facts.some((f) => f.kind === "ai_provider" && f.claimType === "observed")).toBe(false);
+    expect(e.facts.some((f) => f.detector === "ai-provider/none-found")).toBe(true);
   });
 });

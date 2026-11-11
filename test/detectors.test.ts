@@ -49,7 +49,7 @@ describe("AI providers", () => {
 
   it("does not call a server-side SDK use a browser exposure", () => {
     const e = evidenceOf({ "package.json": pkg(["openai"]), "app/api/x/route.ts": `import OpenAI from "openai";\nexport const c = new OpenAI();\n` });
-    expect(e.facts.some((f) => f.kind === "client_side_exposure")).toBe(false);
+    expect(e.facts.some((f) => f.kind === "client_side_exposure" && f.claimType === "observed")).toBe(false);
   });
 });
 
@@ -227,7 +227,7 @@ describe("logging", () => {
 describe("client-side exposure", () => {
   it("flags a secret-named variable with a public prefix", () => {
     const e = evidenceOf({ "package.json": pkg(), "a.tsx": `export const k = process.env.NEXT_PUBLIC_OPENAI_API_KEY;\n` });
-    expect(e.facts.some((f) => f.kind === "client_side_exposure")).toBe(true);
+    expect(e.facts.some((f) => f.kind === "client_side_exposure" && f.claimType === "observed")).toBe(true);
   });
 
   it("does not flag the Supabase anon key or an ordinary public URL (public by design)", () => {
@@ -235,7 +235,7 @@ describe("client-side exposure", () => {
       "package.json": pkg(),
       "a.tsx": `export const a = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;\nexport const u = process.env.NEXT_PUBLIC_SITE_URL;\n`,
     });
-    expect(e.facts.some((f) => f.kind === "client_side_exposure")).toBe(false);
+    expect(e.facts.some((f) => f.kind === "client_side_exposure" && f.claimType === "observed")).toBe(false);
   });
 });
 

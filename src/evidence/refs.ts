@@ -26,6 +26,17 @@ export function extractRefs(text: string): ClaimRef[] {
   return out;
 }
 
+/**
+ * Rewrites every valid marker group, e.g. `[EV-3acc7131, A-001]`, with `fn(ids)`. Anything else in
+ * square brackets is left alone.
+ */
+export function replaceRefGroups(text: string, fn: (ids: string[]) => string): string {
+  return text.replace(/\[([^\[\]\n]{1,200})\]/g, (whole, inner: string) => {
+    const tokens = inner.split(/[\s,]+/).filter(Boolean);
+    return tokens.length > 0 && tokens.every((t) => REF_ID.test(t)) ? fn(tokens) : whole;
+  });
+}
+
 export type DocumentUse = "plain" | "qualified" | "never";
 
 /**

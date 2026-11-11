@@ -32,7 +32,7 @@ export const pkg = (deps: string[] = []) =>
 /** Scans a project made from `files` and returns the facts as "kind|subject|detector" strings. */
 export function factsOf(files: Record<string, string>): string[] {
   const { evidence } = scan({ root: project(files), now: new Date("2026-11-11T11:30:00Z") });
-  return evidence.facts.filter((f) => f.detector !== "secrets/hardcoded-patterns").map((f) => `${f.kind}|${f.subject}|${f.detector}`);
+  return evidence.facts.filter((f) => f.claimType === "observed" && f.detector !== "secrets/hardcoded-patterns").map((f) => `${f.kind}|${f.subject}|${f.detector}`);
 }
 
 export function evidenceOf(files: Record<string, string>) {
