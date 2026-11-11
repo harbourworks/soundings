@@ -1,7 +1,6 @@
 {
   "name": "soundings-cli",
-  "version": "0.0.1",
-  "private": true,
+  "version": "0.1.0",
   "description": "Evidence-backed answers to security questionnaires, run locally.",
   "homepage": "https://dynamomaritime.com/soundings",
   "bugs": {

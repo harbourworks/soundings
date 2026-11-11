@@ -2,7 +2,9 @@
 
 All notable changes to soundings-cli. Versions follow [semantic versioning](https://semver.org); while it's 0.x, a minor version can change behaviour.
 
-## Unreleased
+## 0.1.0 (11 November 2026)
+
+First release. A local scanner and document writer for security questionnaires: scan a JavaScript, TypeScript or Python project, answer only what the code cannot, and draft answers and documents where every statement points to a source.
 
 - **Python support.** A built-in tokenizer (no parser dependency) lets the existing detectors read Python: AI SDKs and the prompts built from request data, FastAPI/Flask/Django sign-in, Microsoft Entra (MSAL), PostgreSQL, MySQL, MongoDB, Redis, SQLAlchemy, Azure Blob/Cosmos/AI Search and vector stores, `os.environ`/`getenv`/pydantic settings, and logged request bodies. Database connection strings in configuration are reported at medium confidence. Virtual environments and caches are skipped. A FastAPI fixture with an answer key and decoys covers it.
 - **No false "not found" on mixed-language projects.** Found by scanning a real Python back end with a Next.js front end, which said "No database found". The scan now counts code it can't read and reports it at the top; with three or more such files it makes no "not found" claims and asks what that code does instead (`UQ-unanalysed-code`), and the question bank and documents use your answer.
