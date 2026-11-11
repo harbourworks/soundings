@@ -1,0 +1,108 @@
+{
+  "fixture": "next-prisma",
+  "project": {
+    "languages": [
+      "typescript"
+    ],
+    "frameworks": [
+      "nextjs",
+      "react"
+    ]
+  },
+  "facts": [
+    {
+      "kind": "data_store",
+      "subject": "PostgreSQL",
+      "detector": "data-store/prisma",
+      "key": "prisma/schema.prisma",
+      "files": [
+        "prisma/schema.prisma"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "ai_provider",
+      "subject": "No AI provider found",
+      "detector": "ai-provider/none-found",
+      "key": "project",
+      "files": [
+        "package.json"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "kind": "auth",
+      "subject": "No sign-in found",
+      "detector": "auth/none-found",
+      "key": "project",
+      "files": [
+        "package.json"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "kind": "secret_handling",
+      "subject": "Hard-coded keys",
+      "detector": "secrets/hardcoded-patterns",
+      "key": "project",
+      "files": [
+        "lib/db.ts"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "kind": "logging",
+      "subject": "Request-body logging",
+      "detector": "logging/request-body",
+      "key": "project",
+      "files": [
+        "app/api/bookings/route.ts"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "kind": "client_side_exposure",
+      "subject": "Browser-exposed secrets",
+      "detector": "client-exposure/public-secret-name",
+      "key": "project",
+      "files": [
+        "lib/db.ts"
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "unknowns": [
+    "postgresql-hosting",
+    "retention-deletion"
+  ],
+  "decoys": [
+    {
+      "kind": "data_store",
+      "subject": "MySQL",
+      "file": "prisma/schema.prisma",
+      "contains": "provider = \"mysql\"",
+      "why": "A provider line inside a // comment in the schema, describing the old setup."
+    },
+    {
+      "kind": "data_store",
+      "subject": "MongoDB",
+      "file": "README.md",
+      "contains": "provider = \"mongodb\"",
+      "why": "Schema text in a README code block about a spike that never shipped; only .prisma files are read."
+    },
+    {
+      "kind": "data_store",
+      "subject": "SQLite",
+      "file": "tests/prisma/schema.prisma",
+      "contains": "provider = \"sqlite\"",
+      "why": "A schema used only by the test suite; files under tests/ are not product code."
+    },
+    {
+      "kind": "data_store",
+      "subject": "SQL database (Prisma)",
+      "file": "tests/bookings.test.ts",
+      "contains": "@prisma/client",
+      "why": "A .test.ts file importing Prisma is not a use by the app."
+    }
+  ]
+}

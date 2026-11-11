@@ -1,0 +1,18 @@
+// Bookings board schema.
+// Before the move to Postgres this was: provider = "mysql"
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Booking {
+  id        Int      @id @default(autoincrement())
+  room      String
+  startsAt  DateTime
+  createdAt DateTime @default(now())
+}

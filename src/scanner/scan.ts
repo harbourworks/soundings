@@ -61,20 +61,39 @@ function unanalysedQuestion(unsupported: ReturnType<typeof unsupportedCode>): Un
   };
 }
 
-const SPECIFIC_SQL = new Set(["PostgreSQL", "MySQL", "Supabase Postgres"]);
+const SPECIFIC_SQL = new Set(["PostgreSQL", "MySQL", "Supabase Postgres", "SQLite", "SQL Server", "CockroachDB"]);
+/** Facts that only know "some SQL database", from a library that can sit on any engine. */
+const GENERIC_SQL = new Set(["SQL database (SQLAlchemy)", "SQL database (Prisma)", "SQL database (Drizzle)"]);
+/** ORMs talk to a database through a driver. Earlier in this list wins when two report the same engine. */
+const ORMS = ["data-store/prisma", "data-store/drizzle"];
+/** A driver import ranks above any ORM; -1 sorts first. */
+const ormRank = (f: FactDraft) => ORMS.indexOf(f.detector);
 
 /**
  * Drops a fact when a better one already says the same thing: a connection string for a store a
- * client import already shows, and the generic SQLAlchemy fact once a specific SQL engine is known.
+ * client import already shows, a generic SQL fact (SQLAlchemy, Prisma or Drizzle without an engine)
+ * once a specific SQL engine is known, and an ORM's fact when a driver (or another ORM) already
+ * reports the same engine. That last one is the same database reached two ways, so its locations
+ * are kept on the fact that stays.
  */
 export function dropRedundant(facts: FactDraft[]): FactDraft[] {
-  const stores = facts.filter((f) => f.kind === "data_store");
-  return facts.filter((f) => {
+  const stores = facts.filter((f) => f.kind === "data_store" && f.claimType !== "not-found");
+  const folded = new Map<FactDraft, NonNullable<FactDraft["locations"]>>();
+  const kept = facts.filter((f) => {
     if (f.kind !== "data_store") return true;
     if (f.detector === "data-store/connection-string") return !stores.some((o) => o.subject === f.subject && o.detector !== f.detector);
-    if (f.subject === "SQL database (SQLAlchemy)") return !stores.some((o) => SPECIFIC_SQL.has(o.subject));
+    if (GENERIC_SQL.has(f.subject)) return !stores.some((o) => SPECIFIC_SQL.has(o.subject));
+    if (ormRank(f) >= 0) {
+      const same = stores.filter((o) => o.subject === f.subject && o.detector !== "data-store/connection-string" && ormRank(o) < ormRank(f));
+      const into = same.sort((a, b) => ormRank(a) - ormRank(b))[0];
+      if (into) {
+        folded.set(into, [...(folded.get(into) ?? []), ...(f.locations ?? [])]);
+        return false;
+      }
+    }
     return true;
   });
+  return kept.map((f) => (folded.has(f) ? { ...f, locations: [...(f.locations ?? []), ...folded.get(f)!].slice(0, MAX_LOCATIONS) } : f));
 }
 
 export interface ScanOptions {

@@ -40,6 +40,10 @@ They read imports of the service's packages and, for analytics, `<script src>` t
 | --- | --- | --- |
 | `data-store/supabase` | `supabase/migrations/*.sql` and `supabase/schema.sql` for tables created and row-level security enabled (comments and Supabase's own schemas are ignored); falls back to the client library at **medium** confidence when there are no migrations | Doesn't know the region, or policies added outside the repo |
 | `data-store/postgres`, `data-store/mongodb`, `data-store/redis`, `data-store/firebase` | Imports of the usual client libraries | Doesn't know where the database is hosted |
+| `data-store/prisma` | Imports of `@prisma/client` in product code, and the `provider` of the `datasource` block in any `.prisma` schema file (`//` comments are ignored; the `url` is never read). Reports PostgreSQL, MySQL, SQLite, MongoDB, SQL Server or CockroachDB. With no readable schema it reports "SQL database (Prisma)" at **medium** confidence, dropped once a specific SQL engine is found | Doesn't know the host. Doesn't follow a client generated to a custom output path |
+| `data-store/drizzle` | Imports of `drizzle-orm`. The schema module names the engine: `drizzle-orm/pg-core` is PostgreSQL, `mysql-core` MySQL, `sqlite-core` SQLite. Otherwise it reports "SQL database (Drizzle)", dropped once a specific SQL engine is found | Doesn't read the engine from driver imports such as `drizzle-orm/neon-http`. Doesn't know the host |
+
+When Prisma or Drizzle names the same engine as a client import (Prisma on PostgreSQL alongside `pg`, say), it is one database, so the report shows one fact. The client import's fact stays and also lists the ORM's locations.
 
 ## Keys and secrets
 
