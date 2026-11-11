@@ -1,0 +1,268 @@
+{
+  "schemaVersion": "0.2",
+  "generatedAt": "2026-11-11T11:30:00Z",
+  "tool": {
+    "name": "soundings",
+    "version": "0.0.1"
+  },
+  "containsSourceCode": false,
+  "project": {
+    "name": "acme-notes",
+    "languages": [
+      "typescript"
+    ],
+    "frameworks": [
+      "nextjs",
+      "supabase-js"
+    ]
+  },
+  "scan": {
+    "filesScanned": 42,
+    "filesSkipped": 3,
+    "detectorsRun": [
+      "ai-provider/openai-sdk",
+      "auth/supabase-auth",
+      "data-flow/ai-request-payload",
+      "data-store/supabase",
+      "logging/request-body",
+      "secrets/env-usage",
+      "third-party/stripe",
+      "third-party/vercel-analytics"
+    ],
+    "detectorsSkipped": [
+      {
+        "detector": "ai-provider/google-sdk",
+        "reason": "no Google AI SDK in dependencies"
+      }
+    ]
+  },
+  "facts": [
+    {
+      "id": "EV-3acc7131",
+      "kind": "ai_provider",
+      "subject": "OpenAI",
+      "claim": "The app calls the OpenAI chat completions API from a server route.",
+      "claimType": "observed",
+      "attributes": {
+        "model": "gpt-4o-mini",
+        "runsOn": "server",
+        "sdk": "openai"
+      },
+      "confidence": "high",
+      "detector": "ai-provider/openai-sdk",
+      "key": "app/api/summarise/route.ts",
+      "locations": [
+        {
+          "file": "app/api/summarise/route.ts",
+          "line": 14
+        }
+      ]
+    },
+    {
+      "id": "EV-1bb9ee7d",
+      "kind": "auth",
+      "subject": "Supabase Auth",
+      "claim": "Users sign in with email and password through Supabase Auth.",
+      "claimType": "observed",
+      "attributes": {
+        "methods": [
+          "email-password"
+        ],
+        "provider": "Supabase Auth"
+      },
+      "confidence": "high",
+      "detector": "auth/supabase-auth",
+      "key": "lib/auth.ts",
+      "locations": [
+        {
+          "file": "lib/auth.ts",
+          "line": 5
+        }
+      ]
+    },
+    {
+      "id": "EV-df558378",
+      "kind": "data_flow",
+      "subject": "OpenAI",
+      "claim": "The text of a user's note is sent to OpenAI to produce a summary.",
+      "claimType": "observed",
+      "attributes": {
+        "dataCategories": [
+          "user-generated content"
+        ],
+        "destination": "OpenAI",
+        "direction": "outbound",
+        "purpose": "summarisation"
+      },
+      "confidence": "high",
+      "detector": "data-flow/ai-request-payload",
+      "key": "app/api/summarise/route.ts",
+      "locations": [
+        {
+          "file": "app/api/summarise/route.ts",
+          "line": 22
+        }
+      ]
+    },
+    {
+      "id": "EV-f979a4be",
+      "kind": "data_store",
+      "subject": "Supabase Postgres",
+      "claim": "User accounts and notes are stored in a Supabase Postgres database with row-level security enabled.",
+      "claimType": "observed",
+      "attributes": {
+        "engine": "postgres",
+        "provider": "Supabase",
+        "rowLevelSecurity": "enabled"
+      },
+      "confidence": "high",
+      "detector": "data-store/supabase",
+      "key": "supabase/migrations/001_init.sql",
+      "locations": [
+        {
+          "file": "supabase/migrations/001_init.sql",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "id": "EV-e55ee4cc",
+      "kind": "logging",
+      "subject": "Server logs",
+      "claim": "The summarise route logs the full request body, which includes note text.",
+      "claimType": "observed",
+      "attributes": {
+        "logsUserContent": true
+      },
+      "confidence": "medium",
+      "detector": "logging/request-body",
+      "key": "app/api/summarise/route.ts",
+      "locations": [
+        {
+          "file": "app/api/summarise/route.ts",
+          "line": 18
+        }
+      ]
+    },
+    {
+      "id": "EV-dd4b67c7",
+      "kind": "secret_handling",
+      "subject": "Environment variables",
+      "claim": "Provider keys are read from environment variables on the server.",
+      "claimType": "observed",
+      "attributes": {
+        "keyNames": [
+          "OPENAI_API_KEY",
+          "STRIPE_SECRET_KEY"
+        ],
+        "mechanism": "env"
+      },
+      "confidence": "high",
+      "detector": "secrets/env-usage",
+      "key": "env",
+      "locations": [
+        {
+          "file": "app/api/summarise/route.ts",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "id": "EV-a333c04d",
+      "kind": "secret_handling",
+      "subject": "Hard-coded keys",
+      "claim": "No hard-coded keys matching known provider key formats were found in the scanned files.",
+      "claimType": "not-found",
+      "attributes": {
+        "patternsChecked": 12
+      },
+      "confidence": "medium",
+      "detector": "secrets/hardcoded-patterns",
+      "key": "project",
+      "locations": []
+    },
+    {
+      "id": "EV-927493cd",
+      "kind": "third_party_service",
+      "subject": "Stripe",
+      "claim": "Payments are created through Stripe Checkout sessions from a server route.",
+      "claimType": "observed",
+      "attributes": {
+        "integration": "checkout",
+        "purpose": "payments"
+      },
+      "confidence": "high",
+      "detector": "third-party/stripe",
+      "key": "app/api/checkout/route.ts",
+      "locations": [
+        {
+          "file": "app/api/checkout/route.ts",
+          "line": 9
+        }
+      ]
+    },
+    {
+      "id": "EV-48f0803b",
+      "kind": "third_party_service",
+      "subject": "Vercel Analytics",
+      "claim": "Vercel Analytics is loaded on every page.",
+      "claimType": "observed",
+      "attributes": {
+        "purpose": "analytics"
+      },
+      "confidence": "high",
+      "detector": "third-party/vercel-analytics",
+      "key": "app/layout.tsx",
+      "locations": [
+        {
+          "file": "app/layout.tsx",
+          "line": 4
+        }
+      ]
+    }
+  ],
+  "unknowns": [
+    {
+      "id": "UQ-openai-data-use",
+      "topic": "AI provider data use",
+      "question": "Is OpenAI's data-retention or training opt-out configured on your account?",
+      "why": "This is an account setting at the provider, not something the code shows.",
+      "relatedFacts": [
+        "EV-3acc7131",
+        "EV-df558378"
+      ]
+    },
+    {
+      "id": "UQ-retention-deletion",
+      "topic": "Retention",
+      "question": "How long are notes kept after a user deletes their account?",
+      "why": "No deletion or retention logic was found in the code.",
+      "relatedFacts": [
+        "EV-f979a4be"
+      ]
+    },
+    {
+      "id": "UQ-supabase-region",
+      "topic": "Data region",
+      "question": "In which region is the Supabase project hosted?",
+      "why": "The region is set in the Supabase dashboard, not in the code.",
+      "relatedFacts": [
+        "EV-f979a4be"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "F-20ca4215",
+      "ruleId": "SW-D02",
+      "severity": "high",
+      "location": {
+        "file": "supabase/migrations/002_policies.sql",
+        "line": 8
+      },
+      "relatedFacts": [
+        "EV-f979a4be"
+      ]
+    }
+  ]
+}

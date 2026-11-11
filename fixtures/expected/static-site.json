@@ -1,0 +1,12 @@
+{
+  "fixture": "static-site",
+  "project": { "languages": ["html"], "frameworks": [] },
+  "facts": [
+    { "kind": "third_party_service", "subject": "Plausible Analytics", "detector": "third-party/plausible-analytics", "key": "index.html", "files": ["index.html"], "confidence": "high" }
+  ],
+  "unknowns": ["hosting-location"],
+  "decoys": [
+    { "kind": "ai_provider", "subject": "OpenAI", "file": "blog/post.md", "contains": "OpenAI", "why": "Named in blog prose saying the site does not use it." },
+    { "kind": "third_party_service", "subject": "Stripe", "file": "blog/post.md", "contains": "Stripe", "why": "Named in blog prose saying the site does not use it." }
+  ]
+}

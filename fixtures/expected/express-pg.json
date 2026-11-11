@@ -1,0 +1,17 @@
+{
+  "fixture": "express-pg",
+  "project": { "languages": ["typescript"], "frameworks": ["express"] },
+  "facts": [
+    { "kind": "ai_provider", "subject": "Anthropic", "detector": "ai-provider/anthropic-sdk", "key": "src/ai.ts", "files": ["src/ai.ts"], "confidence": "high" },
+    { "kind": "data_flow", "subject": "Anthropic", "detector": "data-flow/ai-request-payload", "key": "src/ai.ts", "files": ["src/ai.ts"], "confidence": "high" },
+    { "kind": "data_store", "subject": "PostgreSQL", "detector": "data-store/postgres", "key": "src/db.ts", "files": ["src/db.ts"], "confidence": "high" },
+    { "kind": "auth", "subject": "JSON Web Tokens", "detector": "auth/jwt", "key": "src/auth.ts", "files": ["src/auth.ts"], "confidence": "high" },
+    { "kind": "secret_handling", "subject": "Environment variables", "detector": "secrets/env-usage", "key": "env", "files": ["src/ai.ts"], "confidence": "high" },
+    { "kind": "logging", "subject": "Server logs", "detector": "logging/request-body", "key": "src/server.ts", "files": ["src/server.ts"], "confidence": "medium" }
+  ],
+  "unknowns": ["anthropic-data-use", "postgres-hosting", "retention-deletion"],
+  "decoys": [
+    { "kind": "ai_provider", "subject": "OpenAI", "file": "test/ai.test.ts", "contains": "openai", "why": "Mentioned in a comment about a past comparison; no SDK or call exists." },
+    { "kind": "third_party_service", "subject": "pino", "file": "src/server.ts", "contains": "pino", "why": "A logging library running in the app, not a third-party service that receives data." }
+  ]
+}
