@@ -23,7 +23,8 @@ function tag(f: Fact): string {
 
 const where = (f: Fact) => {
   const l = f.locations[0];
-  return l ? pc.dim(`${l.file}${l.line ? `:${l.line}` : ""}`) : "";
+  const more = f.locations.length > 1 ? ` (+${f.locations.length - 1} more)` : "";
+  return l ? pc.dim(`${l.file}${l.line ? `:${l.line}` : ""}${more}`) : "";
 };
 
 export function renderTerminal(e: EvidenceFile, ms: number, evidencePath: string | null): string {
@@ -34,6 +35,12 @@ export function renderTerminal(e: EvidenceFile, ms: number, evidencePath: string
   out.push(
     `  ${e.scan.filesScanned} files, ${e.scan.detectorsRun.length} detectors, ${ms} ms. ${pc.dim("Your code never left this machine.")}`,
   );
+
+  if (e.scan.unsupported.length > 0) {
+    const n = e.scan.unsupported.map((x) => `${x.files} ${x.language} file${x.files === 1 ? "" : "s"}`).join(", ");
+    out.push("");
+    out.push(`  ${pc.yellow("Not analysed:")} ${n}. Soundings reads JavaScript and TypeScript, so what that code does is not in this report.`);
+  }
 
   if (e.facts.length === 0) {
     out.push("");

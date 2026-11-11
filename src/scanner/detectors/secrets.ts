@@ -59,7 +59,7 @@ const hardcoded: Detector = {
       facts.push({
         kind: "secret_handling",
         subject: "Hard-coded keys",
-        claim: `A value shaped like a credential (${kinds.join(", ")}) appears in this file. The value is not recorded.`,
+        claim: `A value shaped like a credential (${kinds.join(", ")}) was found in the scanned files. The value is not recorded.`,
         attributes: { patternKinds: kinds },
         confidence: "medium",
         detector: "secrets/hardcoded-patterns",

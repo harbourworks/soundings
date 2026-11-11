@@ -57,6 +57,16 @@ They read imports of the service's packages and, for analytics, `<script src>` t
 | `client-exposure/public-secret-name` | Secret-named variables with a public prefix (`NEXT_PUBLIC_OPENAI_API_KEY`). Supabase anon and publishable keys are public by design and are not reported | Judges by name |
 | `client-exposure/ai-sdk-in-browser` | An AI SDK imported in a `"use client"` file | Medium confidence: it suggests a key may reach the browser |
 
+## Code the scan can't read
+
+Soundings reads JavaScript and TypeScript. Source files in Python, Go, Java, Kotlin, Ruby, PHP, C#, Rust, Swift, Scala, Elixir and Dart are counted but never analysed (test folders are left out of the count), and the report says so at the top.
+
+- Below three such files they are noted and the scan carries on.
+- From three files up, the scan can't describe the project, so it **does not claim that anything was "not found"** (no AI provider, database, sign-in method or request-body logging). It asks instead: `UQ-unanalysed-code` asks what the unread code does, and your answer is used, attributed to you, wherever the questions and documents would otherwise have said "not found".
+- Facts about the JavaScript and TypeScript it did read are reported as usual. The secret-pattern search reads every text file whatever its language, so its result stands.
+
+The same finding in several files is reported once, with its locations, not once per file.
+
 ## Questions the scan raises
 
 Where the code can't answer, the scan asks. A question appears only when a fact makes it relevant, and its ID (`UQ-…`) comes from its subject, so it stays the same between scans: data use at each AI provider, the hosting region or location of each data store, how long data is kept and deleted, and where a site with no back end is hosted.

@@ -39,7 +39,7 @@ const requestBodyLogging: Detector = {
       }
       return [];
     });
-    if (found.length > 0) return found;
+    if (found.length > 0 || ctx.hasUnanalysedCode) return found;
     return [
       {
         kind: "logging",

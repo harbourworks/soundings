@@ -113,6 +113,8 @@ export const ScanCoverage = z.object({
   filesSkipped: z.number().int().nonnegative(),
   detectorsRun: z.array(z.string()),
   detectorsSkipped: z.array(z.object({ detector: z.string().min(1), reason: z.string().min(1) })),
+  /** Source code in languages Soundings doesn't read. What it does is not in this file. */
+  unsupported: z.array(z.object({ language: z.string().min(1), files: z.number().int().positive() })).default([]),
 });
 export type ScanCoverage = z.infer<typeof ScanCoverage>;
 

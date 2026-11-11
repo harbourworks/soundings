@@ -25,6 +25,8 @@ export interface ScanContext {
   js: readonly JsFile[];
   hasDep(...names: string[]): boolean;
   hasDepPrefix(prefix: string): boolean;
+  /** The project has significant code in languages Soundings doesn't read, so "not found" can't be claimed. */
+  hasUnanalysedCode: boolean;
 }
 
 /**
