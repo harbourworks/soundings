@@ -1,0 +1,45 @@
+{
+  "name": "soundings-cli",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Evidence-backed answers to security questionnaires, run locally.",
+  "homepage": "https://dynamomaritime.com/soundings",
+  "bugs": {
+    "url": "https://dynamomaritime.com/support",
+    "email": "support@dynamomaritime.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/harbourworks/soundings.git"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Dynamo Maritime Ltd",
+  "type": "module",
+  "bin": {
+    "soundings": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "LICENSE-COMMERCIAL.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli/index.ts",
+    "test": "vitest run",
+    "eval": "vitest run test/fixtures.test.ts test/redact.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "tsup": "8.5.1",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "2.1.9"
+  }
+}
