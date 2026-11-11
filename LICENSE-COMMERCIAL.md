@@ -4,7 +4,14 @@ Copyright 2026 Dynamo Maritime Ltd, registered in England and Wales, company num
 
 ## 1. What this licence covers
 
-"Paid Features" means the source code in the `src/pro/` folder of Soundings, and that code in any compiled or bundled form, including the parts of `dist/` built from it. The rest of Soundings is licensed separately under the Functional Source License (see `LICENSE`).
+"Paid Features" means the source code of these files and folders of Soundings, and that code in any compiled or bundled form, including the parts of `dist/` built from it:
+
+- `src/documents/build.ts`;
+- the `src/import/` folder;
+- these files in `src/export/`: `docx.ts`, `footnotes.ts`, `html.ts`, `markdown-model.ts`, `questionnaire.ts`, `render.ts` and `zip.ts`; and
+- the parts of `src/cli/main.ts` that run the `answers`, `answer` and `document` commands and the `html` and `docx` export formats.
+
+Everything else in Soundings is licensed separately under the Functional Source License (see `LICENSE`). That includes the scanner, the question flow, the `verify` command, the fixed wording in `src/export/notice.ts` and `src/documents/templates.ts`, and the licence check itself (which section 4 still protects). If a file is added to the list above in a later release, the change is recorded in `CHANGELOG.md`.
 
 "Licence Key" means a key issued by us, or by a reseller acting for us, when you buy a Soundings plan (for example Pro or Agency). "Plan" means the plan the Licence Key was issued for, together with its limits, such as the number of machines.
 
