@@ -11,7 +11,7 @@ The definition is [`src/evidence/schema.ts`](../src/evidence/schema.ts). A worke
 3. **Confidence is honest.** `high` means the code states it directly. `medium` is inferred. `low` is a guess: it is shown to you as unconfirmed and never written into a document.
 4. **Absence is weaker than presence.** A `not-found` claim ("no hard-coded keys matching known formats were found") can never be `high`, because a pattern search coming up empty is not proof.
 5. **Unknown is a result.** If the code can't say (a hosting region, an account setting at a provider, how long data is kept), the file contains an `unknown` with a question for you. Nothing fills the gap.
-6. **The file says what was checked.** The `scan` block lists the files covered and the detectors that ran or were skipped, so a missing fact can be told apart from something that was never looked for.
+6. **The file says what was checked.** The `scan` block lists the files covered, the detectors that ran or were skipped, and any code in languages Soundings doesn't read, so a missing fact can be told apart from something that was never looked for.
 7. **Deterministic.** The same project produces the same file apart from `generatedAt`.
 8. **Your answers live elsewhere.** `soundings-answers.json` holds them (`A-001`, ...). The evidence file is never edited by hand.
 

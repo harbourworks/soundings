@@ -49,7 +49,7 @@ export interface EvidenceInput {
   generatedAt: string;
   tool: { name: string; version: string };
   project: { name: string; languages?: string[]; frameworks?: string[] };
-  scan: ScanCoverage;
+  scan: Omit<ScanCoverage, "unsupported"> & { unsupported?: ScanCoverage["unsupported"] };
   facts: FactDraft[];
   unknowns?: UnknownDraft[];
   findings?: FindingDraft[];
@@ -139,6 +139,7 @@ export function buildEvidence(input: EvidenceInput): EvidenceFile {
       ...input.scan,
       detectorsRun: [...input.scan.detectorsRun].sort(),
       detectorsSkipped: [...input.scan.detectorsSkipped].sort((a, b) => cmp(a.detector, b.detector)),
+      unsupported: [...(input.scan.unsupported ?? [])].sort((a, b) => cmp(a.language, b.language)),
     },
     facts: facts.map((f, i) => ({
       id: factIds[i]!,

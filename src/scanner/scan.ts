@@ -1,10 +1,11 @@
-import { buildEvidence, type FactDraft, type FindingDraft } from "../evidence/build.js";
+import { buildEvidence, type FactDraft, type FindingDraft, type UnknownDraft } from "../evidence/build.js";
 import { assertNoLeaks, createGuard, loadEnvValues } from "../evidence/redact.js";
 import type { EvidenceFile } from "../evidence/schema.js";
 import { ProjectFiles } from "../core/project.js";
 import { excluder, walk } from "../core/walk.js";
 import { VERSION } from "../version.js";
 import { buildContext } from "./context.js";
+import { describeUnsupported, isSignificant, unsupportedCode } from "./coverage.js";
 import { DETECTORS } from "./detectors/index.js";
 import { projectInfo } from "./project-info.js";
 import { unknownsFor } from "./unknowns.js";
@@ -26,6 +27,38 @@ function absences(found: FactDraft[]): FactDraft[] {
     detector: a.detector,
     key: "project",
   }));
+}
+
+/** How many locations one merged fact lists. Enough to find it; the report isn't a file index. */
+const MAX_LOCATIONS = 10;
+
+/**
+ * One fact per thing found, not one per file: eight files importing the same sign-in library are
+ * one fact with eight locations. Facts merge only when everything but where they were found is
+ * identical, so nothing different is ever folded together.
+ */
+export function mergeFacts(facts: FactDraft[]): FactDraft[] {
+  const groups = new Map<string, FactDraft[]>();
+  for (const f of facts) {
+    const attrs = JSON.stringify(Object.entries(f.attributes ?? {}).sort(([a], [b]) => a.localeCompare(b)));
+    const id = [f.kind, f.subject, f.detector, f.claim, f.claimType ?? "observed", f.confidence, attrs].join("|");
+    groups.set(id, [...(groups.get(id) ?? []), f]);
+  }
+  return [...groups.values()].map((group) => {
+    if (group.length === 1) return group[0]!;
+    const sorted = [...group].sort((a, b) => (a.key ?? "").localeCompare(b.key ?? ""));
+    const locations = sorted.flatMap((f) => f.locations ?? []);
+    return { ...sorted[0]!, locations: locations.slice(0, MAX_LOCATIONS) };
+  });
+}
+
+function unanalysedQuestion(unsupported: ReturnType<typeof unsupportedCode>): UnknownDraft {
+  return {
+    key: "unanalysed-code",
+    topic: "Code not analysed",
+    question: `This project also contains ${describeUnsupported(unsupported)}, which Soundings doesn't read. What AI services, databases, sign-in methods and logging do those parts use?`,
+    why: "Soundings reads JavaScript and TypeScript only, so what the other code does is not in this scan.",
+  };
 }
 
 export interface ScanOptions {
@@ -68,21 +101,26 @@ export function scan(opts: ScanOptions): ScanOutcome {
 
   // Absence is reported too, so a later answer ("we don't use AI") has something honest to cite.
   // These are "not found" facts at medium confidence: the supported list is all the scan can rule out.
-  for (const a of absences(facts)) {
-    detectorsRun.push(a.detector);
-    facts.push(a);
+  const unsupported = unsupportedCode(files);
+  const unanalysed = isSignificant(unsupported);
+  if (!unanalysed) {
+    for (const a of absences(facts)) {
+      detectorsRun.push(a.detector);
+      facts.push(a);
+    }
   }
 
-  const findings: FindingDraft[] = opts.seaworthy === undefined ? [] : readSeaworthyReport(opts.seaworthy, facts);
+  const merged = mergeFacts(facts);
+  const findings: FindingDraft[] = opts.seaworthy === undefined ? [] : readSeaworthyReport(opts.seaworthy, merged);
   const info = projectInfo(ctx, opts.root);
 
   const evidence = buildEvidence({
     generatedAt: (opts.now ?? new Date()).toISOString(),
     tool: { name: "soundings", version: VERSION },
     project: info,
-    scan: { filesScanned: files.length, filesSkipped: skippedLarge.length, detectorsRun, detectorsSkipped },
-    facts,
-    unknowns: unknownsFor(facts),
+    scan: { filesScanned: files.length, filesSkipped: skippedLarge.length, detectorsRun, detectorsSkipped, unsupported },
+    facts: merged,
+    unknowns: [...unknownsFor(merged, unanalysed), ...(unanalysed ? [unanalysedQuestion(unsupported)] : [])],
     findings,
   });
 

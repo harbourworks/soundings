@@ -11,7 +11,7 @@ const slug = (s: string) =>
  * What the code can't tell us, turned into questions. Each question is raised only when a fact
  * makes it relevant, and its ID comes from its subject so it stays the same between scans.
  */
-export function unknownsFor(all: FactDraft[]): UnknownDraft[] {
+export function unknownsFor(all: FactDraft[], unanalysed = false): UnknownDraft[] {
   // A "not found" fact is the absence of something; it never makes a question relevant.
   const facts = all.filter((f) => f.claimType !== "not-found");
   const out = new Map<string, UnknownDraft>();
@@ -59,7 +59,8 @@ export function unknownsFor(all: FactDraft[]): UnknownDraft[] {
   }
 
   const hasBackendSignals = facts.some((f) => f.kind === "data_store" || f.kind === "ai_provider" || f.kind === "auth");
-  if (!hasBackendSignals) {
+  // Unread back-end code means "no back end found" would be a guess, so the hosting question isn't raised on that basis.
+  if (!hasBackendSignals && !unanalysed) {
     add({
       key: "hosting-location",
       topic: "Hosting",

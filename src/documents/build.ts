@@ -4,7 +4,7 @@ import { DRAFT_NOTICE, NOT_YET_PROVIDED } from "../export/notice.js";
 import { BANK } from "../questions/bank.js";
 import { buildAnswerCtx } from "../questions/context.js";
 import { renderSentence } from "../questions/engine.js";
-import { addFacts, draft, profile, refsOf } from "../questions/helpers.js";
+import { addFacts, draft, profile, refsOf, unanalysed } from "../questions/helpers.js";
 import type { AnswerCtx, Draft, Need } from "../questions/types.js";
 import { TEMPLATES } from "./templates.js";
 
@@ -185,6 +185,7 @@ function subprocessors(d: Doc, ctx: AnswerCtx) {
       const f = factsBy(ctx, id)[0];
       if (f) addFacts(none, [f]);
     }
+    if (none.sentences.length === 0) unanalysed(ctx, none);
     d.draft(none);
   }
   d.heading("Other suppliers");

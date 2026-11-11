@@ -1,6 +1,7 @@
 import type { Node } from "@babel/types";
 import { JS_FILE_RE, parseJs, walkAst } from "../core/js.js";
 import type { ProjectFiles } from "../core/project.js";
+import { isSignificant, unsupportedCode } from "./coverage.js";
 import type { ImportInfo, JsFile, ScanContext } from "./types.js";
 
 /** Tests, specs and fixtures describe how code is checked, not how the product runs. */
@@ -55,6 +56,7 @@ export function buildContext(project: ProjectFiles): ScanContext {
     js,
     hasDep: (...names) => names.some((n) => deps.has(n)),
     hasDepPrefix: (prefix) => [...deps].some((d) => d.startsWith(prefix)),
+    hasUnanalysedCode: isSignificant(unsupportedCode(project.files)),
   };
 }
 

@@ -12,4 +12,5 @@ First version in this repository. Differences from the earlier 0.1 draft:
 - **`key`** on facts: the stable discriminator an ID is derived from, usually a file path.
 - **Findings are citable.** Each has an `F-` ID and optional `relatedFacts`, so a finding that pulls against a fact is visible.
 - **Marker syntax** accepts several IDs in one bracket (`[EV-3acc7131, A-001]`) and reserves `F-` and `KB-`.
+- **`scan.unsupported`:** source files in languages Soundings doesn't read, by language. When there are enough of them the scan raises `UQ-unanalysed-code` and makes no "not found" claims.
 - **Conventional attributes** `purpose`, `dataCategories` and `region` for the subprocessor list.

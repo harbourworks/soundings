@@ -83,3 +83,19 @@ export function absenceSentence(ctx: AnswerCtx, detector: string): Sentence | nu
 
 export const subjectsOf = (facts: Fact[]) => [...new Set(facts.map((f) => f.subject))];
 export const refsOf = (facts: Fact[]) => facts.map((f) => f.id);
+
+/**
+ * What to say about code the scan didn't read: the team's answer to the "code not analysed" question
+ * if they've given one, otherwise that question. Nothing is said on the scan's behalf.
+ */
+export function unanalysed(ctx: AnswerCtx, d: Draft): void {
+  const u = ctx.evidence.unknowns.find((x) => x.id === "UQ-unanalysed-code");
+  if (u) unknownAnswer(ctx, d, u, "Parts of the project the scan did not read");
+}
+
+/** The "not found" sentence for a detector or, when the scan couldn't see everything, the question about unread code. */
+export function noneFound(ctx: AnswerCtx, d: Draft, detector: string): void {
+  const s = absenceSentence(ctx, detector);
+  if (s) d.sentences.push(s);
+  else unanalysed(ctx, d);
+}

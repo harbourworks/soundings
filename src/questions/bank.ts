@@ -1,5 +1,5 @@
 import type { Fact } from "../evidence/schema.js";
-import { S, absenceSentence, addFacts, draft, factSentence, list, profile, refsOf, subjectsOf, unknownAnswer } from "./helpers.js";
+import { S, addFacts, draft, factSentence, list, noneFound, profile, refsOf, subjectsOf, unanalysed, unknownAnswer } from "./helpers.js";
 import type { AnswerCtx, BankQuestion, Category, Draft } from "./types.js";
 
 /**
@@ -31,8 +31,7 @@ export const BANK: BankQuestion[] = [
     const providers = ctx.facts("ai_provider");
     if (providers.length > 0) d.sentences.push(S(`The system uses AI services from ${list(subjectsOf(providers))}.`, ...refsOf(providers)));
     else {
-      const none = absenceSentence(ctx, "ai-provider/none-found");
-      if (none) d.sentences.push(none);
+      noneFound(ctx, d, "ai-provider/none-found");
     }
     return d;
   }),
@@ -40,8 +39,7 @@ export const BANK: BankQuestion[] = [
     const d = draft();
     const providers = ctx.facts("ai_provider");
     if (providers.length === 0) {
-      const none = absenceSentence(ctx, "ai-provider/none-found");
-      if (none) d.sentences.push(none);
+      noneFound(ctx, d, "ai-provider/none-found");
       return d;
     }
     const parts = providers.map((f) => (f.attributes.model ? `${f.subject} (model ${String(f.attributes.model)})` : f.subject));
@@ -51,8 +49,7 @@ export const BANK: BankQuestion[] = [
   q("ai-data-sent", "ai", "What data is sent to AI providers?", ["data sent to AI", "prompt", "prompts", "passed to", "sent to AI", "inputs to the model", "personal data AI"], (ctx) => {
     const d = draft();
     if (ctx.facts("ai_provider").length === 0) {
-      const none = absenceSentence(ctx, "ai-provider/none-found");
-      if (none) d.sentences.push(none);
+      noneFound(ctx, d, "ai-provider/none-found");
       return d;
     }
     addFacts(d, ctx.facts("data_flow"));
@@ -63,8 +60,7 @@ export const BANK: BankQuestion[] = [
     const d = draft();
     const unknowns = ctx.unknownsWithTopic("AI provider data use");
     if (unknowns.length === 0) {
-      const none = absenceSentence(ctx, "ai-provider/none-found");
-      if (none) d.sentences.push(none);
+      noneFound(ctx, d, "ai-provider/none-found");
       return d;
     }
     for (const u of unknowns) unknownAnswer(ctx, d, u);
@@ -73,16 +69,14 @@ export const BANK: BankQuestion[] = [
   q("ai-oversight", "ai", "Is there human oversight of AI outputs?", ["human oversight", "human in the loop", "review of AI output", "automated decision"], (ctx) => {
     const d = draft();
     if (ctx.facts("ai_provider").length === 0) {
-      const none = absenceSentence(ctx, "ai-provider/none-found");
-      if (none) d.sentences.push(none);
+      noneFound(ctx, d, "ai-provider/none-found");
     } else profile(ctx, d, "ai-human-oversight");
     return d;
   }),
   q("ai-keys", "ai", "How are AI provider credentials protected?", ["AI keys", "API key protection", "model credentials", "provider keys"], (ctx) => {
     const d = draft();
     if (ctx.facts("ai_provider").length === 0) {
-      const none = absenceSentence(ctx, "ai-provider/none-found");
-      if (none) d.sentences.push(none);
+      noneFound(ctx, d, "ai-provider/none-found");
       return d;
     }
     addFacts(d, ctx.byDetector("secrets/env-usage"));
@@ -94,8 +88,7 @@ export const BANK: BankQuestion[] = [
     const d = draft();
     const providers = ctx.facts("ai_provider");
     if (providers.length === 0) {
-      const none = absenceSentence(ctx, "ai-provider/none-found");
-      if (none) d.sentences.push(none);
+      noneFound(ctx, d, "ai-provider/none-found");
       return d;
     }
     const browser = providers.filter((f) => f.attributes.runsOn === "browser");
@@ -109,8 +102,7 @@ export const BANK: BankQuestion[] = [
   q("ai-region", "ai", "Where do AI providers process your data?", ["AI processing location", "AI data residency", "where is AI data processed"], (ctx) => {
     const d = draft();
     if (ctx.facts("ai_provider").length === 0) {
-      const none = absenceSentence(ctx, "ai-provider/none-found");
-      if (none) d.sentences.push(none);
+      noneFound(ctx, d, "ai-provider/none-found");
     } else profile(ctx, d, "ai-processing-region");
     return d;
   }),
@@ -119,8 +111,7 @@ export const BANK: BankQuestion[] = [
   q("data-stores", "data", "Where and in what systems is customer data stored?", ["data stored", "storage", "database", "data repository", "where is data held"], (ctx) => {
     const d = draft();
     if (addFacts(d, ctx.facts("data_store")) === 0) {
-      const none = absenceSentence(ctx, "data-store/none-found");
-      if (none) d.sentences.push(none);
+      noneFound(ctx, d, "data-store/none-found");
     }
     return d;
   }),
@@ -128,8 +119,7 @@ export const BANK: BankQuestion[] = [
     const d = draft();
     const unknowns = ctx.unknownsWithTopic("Data region", "Database hosting", "Hosting");
     if (unknowns.length === 0) {
-      const none = absenceSentence(ctx, "data-store/none-found");
-      if (none) d.sentences.push(none);
+      noneFound(ctx, d, "data-store/none-found");
       return d;
     }
     for (const u of unknowns) unknownAnswer(ctx, d, u);
@@ -149,8 +139,7 @@ export const BANK: BankQuestion[] = [
     const d = draft();
     const unknowns = ctx.unknownsWithTopic("Retention");
     if (unknowns.length === 0) {
-      const none = absenceSentence(ctx, "data-store/none-found");
-      if (none) d.sentences.push(none);
+      noneFound(ctx, d, "data-store/none-found");
       return d;
     }
     for (const u of unknowns) unknownAnswer(ctx, d, u, "Retention and deletion");
@@ -188,8 +177,7 @@ export const BANK: BankQuestion[] = [
   q("auth-methods", "access", "How do users authenticate?", ["authentication", "login", "sign in", "identity", "SSO", "user accounts"], (ctx) => {
     const d = draft();
     if (addFacts(d, ctx.facts("auth")) === 0) {
-      const none = absenceSentence(ctx, "auth/none-found");
-      if (none) d.sentences.push(none);
+      noneFound(ctx, d, "auth/none-found");
     }
     return d;
   }),
@@ -240,7 +228,7 @@ export const BANK: BankQuestion[] = [
   // ---- Logging and monitoring
   q("logging-content", "logging", "What is logged, and does it include user content or personal data?", ["logging", "audit log", "personal data in logs", "what is logged", "log content"], (ctx) => {
     const d = draft();
-    addFacts(d, ctx.byDetector("logging/request-body"));
+    if (addFacts(d, ctx.byDetector("logging/request-body")) === 0) unanalysed(ctx, d);
     return d;
   }),
   q("logging-retention", "logging", "How long are logs kept, and who can access them?", ["log retention", "log access", "log storage", "logs retained", "logs kept", "how long are logs", "logs retention"], (ctx) => {

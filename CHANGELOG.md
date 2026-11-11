@@ -4,6 +4,8 @@ All notable changes to soundings-cli. Versions follow [semantic versioning](http
 
 ## Unreleased
 
+- **No false "not found" on mixed-language projects.** Found by scanning a real Python back end with a Next.js front end, which said "No database found". The scan now counts code it can't read and reports it at the top; with three or more such files it makes no "not found" claims and asks what that code does instead (`UQ-unanalysed-code`), and the question bank and documents use your answer.
+- The same finding in several files is now one fact with several locations, not one fact per file.
 - **`soundings document <type>`:** privacy notice, subprocessor list, DPIA draft, AI-use statement and trust page, built only from the scan and your answers (Pro). Gaps are listed as needing your input. Fixed legal-weight wording is isolated in one file and recognised by the verifier only on an exact match.
 - **Exports:** Markdown, a self-contained HTML page (print it for a PDF) and a Word file with real footnotes, for documents and for `answers`. No new dependencies: the Word and ZIP writers are in the package.
 - `soundings questions --documents` asks for what the documents still need.
