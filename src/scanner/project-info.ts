@@ -5,6 +5,7 @@ const LANGUAGE_BY_EXT: Array<[RegExp, string]> = [
   [/\.(?:tsx?|mts|cts)$/, "typescript"],
   [/\.(?:jsx?|mjs|cjs)$/, "javascript"],
   [/\.html?$/, "html"],
+  [/\.py$/, "python"],
 ];
 
 const FRAMEWORKS: Array<[string, string]> = [
@@ -25,6 +26,9 @@ export function projectInfo(ctx: ScanContext, root: string): { name: string; lan
     if (hit) languages.add(hit[1]);
   }
   const frameworks = FRAMEWORKS.filter(([dep]) => ctx.hasDep(dep)).map(([, name]) => name);
+  for (const name of ["fastapi", "flask", "django"]) {
+    if (ctx.hasPyImport(name) && !frameworks.includes(name)) frameworks.push(name);
+  }
 
   const pkg = ctx.project.json("package.json") as { name?: unknown } | null;
   const name = typeof pkg?.name === "string" && pkg.name.length > 0 ? pkg.name : basename(root) || "project";

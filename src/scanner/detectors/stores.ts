@@ -1,5 +1,5 @@
 import type { FactDraft } from "../../evidence/build.js";
-import { importsModule } from "../context.js";
+import { importsModule, importsPy } from "../context.js";
 import type { Detector } from "../types.js";
 
 const SUPABASE_SQL = /(^|\/)supabase\/(migrations\/.+|schema)\.sql$/;
@@ -17,7 +17,7 @@ function tableName(raw: string): string | null {
 const supabase: Detector = {
   id: "data-store/supabase",
   skipReason: (ctx) =>
-    ctx.hasDepPrefix("@supabase/") || ctx.project.files.some((f) => SUPABASE_SQL.test(f)) ? null : "no Supabase package or migrations found",
+    ctx.hasDepPrefix("@supabase/") || ctx.hasPyImport("supabase") || ctx.project.files.some((f) => SUPABASE_SQL.test(f)) ? null : "no Supabase package or migrations found",
   run: (ctx) => {
     const sqlFiles = ctx.project.files.filter((f) => SUPABASE_SQL.test(f)).sort();
     const created = new Map<string, { file: string; line: number }>();
@@ -62,9 +62,10 @@ const supabase: Detector = {
     }
 
     // No migrations in the repo: the client library shows Supabase is used, but not how it is secured.
-    const user = ctx.js.find((f) => importsModule(f, "@supabase/supabase-js"));
+    const pyUser = ctx.py.find((f) => importsPy(f, "supabase"));
+    const user = ctx.js.find((f) => importsModule(f, "@supabase/supabase-js")) ?? pyUser;
     if (!user) return [];
-    const imp = importsModule(user, "@supabase/supabase-js");
+    const imp = "imports" in user && pyUser === user ? importsPy(pyUser, "supabase") : importsModule(user as Parameters<typeof importsModule>[0], "@supabase/supabase-js");
     return [
       {
         kind: "data_store",
@@ -85,41 +86,98 @@ export interface StoreSpec {
   subject: string;
   engine: string;
   packages: string[];
+  /** Python modules for the same store. */
+  pyModules?: string[];
 }
 
 export const STORES: StoreSpec[] = [
-  { slug: "postgres", subject: "PostgreSQL", engine: "postgres", packages: ["pg", "postgres", "pg-promise"] },
-  { slug: "mongodb", subject: "MongoDB", engine: "mongodb", packages: ["mongodb", "mongoose"] },
-  { slug: "redis", subject: "Redis", engine: "redis", packages: ["redis", "ioredis", "@upstash/redis"] },
-  { slug: "firebase", subject: "Firebase (Firestore)", engine: "firestore", packages: ["firebase/firestore", "firebase-admin/firestore", "firebase-admin"] },
+  { slug: "postgres", subject: "PostgreSQL", engine: "postgres", packages: ["pg", "postgres", "pg-promise"], pyModules: ["psycopg", "psycopg2", "asyncpg"] },
+  { slug: "mongodb", subject: "MongoDB", engine: "mongodb", packages: ["mongodb", "mongoose"], pyModules: ["pymongo", "motor", "mongoengine", "beanie"] },
+  { slug: "redis", subject: "Redis", engine: "redis", packages: ["redis", "ioredis", "@upstash/redis"], pyModules: ["redis", "aioredis"] },
+  { slug: "firebase", subject: "Firebase (Firestore)", engine: "firestore", packages: ["firebase/firestore", "firebase-admin/firestore", "firebase-admin"], pyModules: ["firebase_admin.firestore", "google.cloud.firestore"] },
+  { slug: "mysql", subject: "MySQL", engine: "mysql", packages: ["mysql", "mysql2"], pyModules: ["pymysql", "mysql.connector", "aiomysql", "MySQLdb"] },
+  { slug: "sqlalchemy", subject: "SQL database (SQLAlchemy)", engine: "sql", packages: [], pyModules: ["sqlalchemy"] },
+  { slug: "azure-blob", subject: "Azure Blob Storage", engine: "object-storage", packages: ["@azure/storage-blob"], pyModules: ["azure.storage.blob"] },
+  { slug: "cosmos", subject: "Azure Cosmos DB", engine: "cosmos", packages: ["@azure/cosmos"], pyModules: ["azure.cosmos"] },
+  { slug: "azure-search", subject: "Azure AI Search", engine: "search-index", packages: ["@azure/search-documents"], pyModules: ["azure.search.documents"] },
+  { slug: "chroma", subject: "Chroma", engine: "vector", packages: ["chromadb"], pyModules: ["chromadb"] },
+  { slug: "qdrant", subject: "Qdrant", engine: "vector", packages: ["@qdrant/js-client-rest"], pyModules: ["qdrant_client"] },
+  { slug: "pinecone", subject: "Pinecone", engine: "vector", packages: ["@pinecone-database/pinecone"], pyModules: ["pinecone"] },
 ];
 
 function storeDetector(spec: StoreSpec): Detector {
   const id = `data-store/${spec.slug}`;
+  const fact = (file: string, line?: number): FactDraft => ({
+    kind: "data_store",
+    subject: spec.subject,
+    claim: `The app stores data in ${spec.subject}.`,
+    attributes: { engine: spec.engine },
+    confidence: "high",
+    detector: id,
+    key: file,
+    locations: [{ file, ...(line ? { line } : {}) }],
+  });
   return {
     id,
     skipReason: (ctx) => {
-      const roots = spec.packages.map((p) => p.split("/")[0]!);
-      return ctx.hasDep(...roots) ? null : `no ${spec.subject} package in dependencies`;
+      const roots = spec.packages.map((p) => (p.startsWith("@") ? p : p.split("/")[0]!));
+      if (roots.length > 0 && ctx.hasDep(...roots)) return null;
+      if (spec.pyModules && ctx.hasPyImport(...spec.pyModules)) return null;
+      return `no ${spec.subject} package in dependencies`;
     },
-    run: (ctx) =>
-      ctx.js.flatMap((f): FactDraft[] => {
-        const imp = spec.packages.map((p) => importsModule(f, p)).find(Boolean);
-        if (!imp) return [];
-        return [
-          {
-            kind: "data_store",
-            subject: spec.subject,
-            claim: `The app stores data in ${spec.subject}.`,
-            attributes: { engine: spec.engine },
-            confidence: "high",
-            detector: id,
-            key: f.file,
-            locations: [{ file: f.file, ...(imp.line ? { line: imp.line } : {}) }],
-          },
-        ];
+    run: (ctx) => [
+      ...ctx.py.flatMap((f): FactDraft[] => {
+        const imp = spec.pyModules ? importsPy(f, ...spec.pyModules) : undefined;
+        return imp ? [fact(f.file, imp.line)] : [];
       }),
+      ...ctx.js.flatMap((f): FactDraft[] => {
+        const imp = spec.packages.map((p) => importsModule(f, p)).find(Boolean);
+        return imp ? [fact(f.file, imp.line)] : [];
+      }),
+    ],
   };
 }
 
-export const storeDetectors: Detector[] = [supabase, ...STORES.map(storeDetector)];
+/**
+ * A database connection string in configuration (a compose file, settings, an env template).
+ * It shows what the project is set up to use even when no client library is imported in code the
+ * scan reads. Medium confidence, and dropped when a client import already shows the same store.
+ */
+const CONNECTION_FILE = /\.(?:py|ya?ml|toml|ini|cfg|json)$|(?:^|\/)\.env(?:\.[\w.-]+)?$/;
+const CONNECTION_STRING = /\b(postgres(?:ql)?(?:\+\w+)?|mysql(?:\+\w+)?|mongodb(?:\+srv)?|rediss?):\/\//gi;
+const CONNECTION_SUBJECT = (scheme: string): string => {
+  const s = scheme.toLowerCase();
+  return s.startsWith("postgres") ? "PostgreSQL" : s.startsWith("mysql") ? "MySQL" : s.startsWith("mongodb") ? "MongoDB" : "Redis";
+};
+
+const connectionString: Detector = {
+  id: "data-store/connection-string",
+  skipReason: () => null,
+  run: (ctx) => {
+    const facts: FactDraft[] = [];
+    for (const file of ctx.project.files) {
+      if (!CONNECTION_FILE.test(file) || /(?:^|\/)(?:package-lock\.json|[^/]*\.lock)$/.test(file)) continue;
+      const text = ctx.project.read(file);
+      if (text === null) continue;
+      const seen = new Set<string>();
+      for (const m of text.matchAll(CONNECTION_STRING)) {
+        const subject = CONNECTION_SUBJECT(m[1]!);
+        if (seen.has(subject)) continue;
+        seen.add(subject);
+        facts.push({
+          kind: "data_store",
+          subject,
+          claim: `A connection string for ${subject} appears in the project's configuration.`,
+          attributes: { engine: subject.toLowerCase() },
+          confidence: "medium",
+          detector: "data-store/connection-string",
+          key: file,
+          locations: [{ file, line: ctx.project.position(file, m.index ?? 0).line }],
+        });
+      }
+    }
+    return facts;
+  },
+};
+
+export const storeDetectors: Detector[] = [supabase, ...STORES.map(storeDetector), connectionString];

@@ -2,7 +2,7 @@
 
 Each detector reads one family of facts and says where it stops. Detectors read the structure of your code (imports, calls, property names), so a package named in a comment, a string or a test file is not mistaken for a real use. Tests, specs and fixtures are left out of every code detector. Anything outside the supported list is reported as "couldn't determine", never guessed.
 
-Supported: JavaScript and TypeScript projects (Next.js, Node/Express), Supabase, Firebase, Stripe, and the OpenAI, Anthropic, Google and Vercel AI SDKs.
+Supported: JavaScript, TypeScript and Python projects (Next.js, Node/Express, FastAPI, Flask, Django), Supabase, Firebase, Stripe, Azure, and the OpenAI, Anthropic, Google and Vercel AI SDKs.
 
 Every detector ID below appears in the `scan` block of the evidence file when it ran, or in `detectorsSkipped` with the reason it didn't.
 
@@ -57,9 +57,24 @@ They read imports of the service's packages and, for analytics, `<script src>` t
 | `client-exposure/public-secret-name` | Secret-named variables with a public prefix (`NEXT_PUBLIC_OPENAI_API_KEY`). Supabase anon and publishable keys are public by design and are not reported | Judges by name |
 | `client-exposure/ai-sdk-in-browser` | An AI SDK imported in a `"use client"` file | Medium confidence: it suggests a key may reach the browser |
 
+## Python
+
+Python is read with a small built-in tokenizer, not a parser dependency. Comments and strings (including docstrings) are never mistaken for code, so a library named in a comment, a docstring or a test file is not a use. The detectors that read JavaScript also read Python imports and calls and report the same facts (`ai-provider/*`, `data-flow/ai-request-payload`, `third-party/*`, `secrets/env-usage`, `logging/request-body`). For Python they also read `os.environ`, `os.getenv` and pydantic `BaseSettings` fields for secret names, and treat route-handler parameters (`@router.post`) as request content when tracing what reaches a prompt or a log. Virtual environments and tool caches are skipped.
+
+Detectors added for Python and the Azure stack:
+
+| Detector | Reads | Stops at |
+| --- | --- | --- |
+| `auth/entra` | MSAL imports (Python and JavaScript) | Doesn't see tenant or conditional-access settings |
+| `auth/fastapi-security`, `auth/django-auth`, `auth/flask-login`, `auth/authlib` | Imports of the framework's authentication helpers | Doesn't judge how they are configured |
+| `data-store/mysql`, `data-store/sqlalchemy`, `data-store/cosmos` | Client imports. SQLAlchemy is dropped when a specific SQL engine is found | Doesn't know the host |
+| `data-store/azure-blob`, `data-store/azure-search` | Azure storage and search client imports | Doesn't know the region or account settings |
+| `data-store/chroma`, `data-store/qdrant`, `data-store/pinecone` | Vector database client imports | Same |
+| `data-store/connection-string` | Database URLs in configuration files (compose, settings, env templates), at **medium** confidence. Dropped when a client import already shows the same store | A URL in config shows what the project is set up to use, not that it runs |
+
 ## Code the scan can't read
 
-Soundings reads JavaScript and TypeScript. Source files in Python, Go, Java, Kotlin, Ruby, PHP, C#, Rust, Swift, Scala, Elixir and Dart are counted but never analysed (test folders are left out of the count), and the report says so at the top.
+Soundings reads JavaScript, TypeScript and Python. Source files in Go, Java, Kotlin, Ruby, PHP, C#, Rust, Swift, Scala, Elixir and Dart are counted but never analysed (test folders are left out of the count), and the report says so at the top.
 
 - Below three such files they are noted and the scan carries on.
 - From three files up, the scan can't describe the project, so it **does not claim that anything was "not found"** (no AI provider, database, sign-in method or request-body logging). It asks instead: `UQ-unanalysed-code` asks what the unread code does, and your answer is used, attributed to you, wherever the questions and documents would otherwise have said "not found".

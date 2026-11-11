@@ -16,6 +16,15 @@ const ALWAYS_SKIP = [
   "out/",
   "coverage/",
   ".cache/",
+  // Python: virtual environments and tool caches hold other people's code, not the project's.
+  ".venv/",
+  "venv/",
+  "__pycache__/",
+  "site-packages/",
+  ".tox/",
+  ".mypy_cache/",
+  ".pytest_cache/",
+  ".ruff_cache/",
 ];
 
 export const MAX_FILE_BYTES = 1_000_000;

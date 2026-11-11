@@ -1,7 +1,8 @@
 import type { FactDraft } from "../../evidence/build.js";
 import { walkAst } from "../../core/js.js";
 import { calls, dynamicRoots, endsWith, firstStringProperty, paramNames, requestVariables } from "../ast.js";
-import { importsModule } from "../context.js";
+import { importsModule, importsPy } from "../context.js";
+import { aiPayload, firstStringKwarg } from "../python/parse.js";
 import type { Detector, JsFile, ScanContext } from "../types.js";
 
 interface ProviderSpec {
@@ -9,13 +10,15 @@ interface ProviderSpec {
   subject: string;
   /** Importing any of these means the provider's SDK is in use. */
   packages: string[];
+  /** Python modules that mean the same provider. */
+  pyModules: string[];
 }
 
 export const AI_PROVIDERS: ProviderSpec[] = [
-  { id: "ai-provider/openai-sdk", subject: "OpenAI", packages: ["openai", "@ai-sdk/openai"] },
-  { id: "ai-provider/anthropic-sdk", subject: "Anthropic", packages: ["@anthropic-ai/sdk", "@ai-sdk/anthropic"] },
-  { id: "ai-provider/google-sdk", subject: "Google AI", packages: ["@google/generative-ai", "@google/genai", "@ai-sdk/google"] },
-  { id: "ai-provider/vercel-ai-sdk", subject: "Vercel AI SDK", packages: ["ai"] },
+  { id: "ai-provider/openai-sdk", subject: "OpenAI", packages: ["openai", "@ai-sdk/openai"], pyModules: ["openai", "langchain_openai"] },
+  { id: "ai-provider/anthropic-sdk", subject: "Anthropic", packages: ["@anthropic-ai/sdk", "@ai-sdk/anthropic"], pyModules: ["anthropic", "langchain_anthropic"] },
+  { id: "ai-provider/google-sdk", subject: "Google AI", packages: ["@google/generative-ai", "@google/genai", "@ai-sdk/google"], pyModules: ["google.generativeai", "google.genai", "langchain_google_genai", "vertexai"] },
+  { id: "ai-provider/vercel-ai-sdk", subject: "Vercel AI SDK", packages: ["ai"], pyModules: [] },
 ];
 
 /** The provider(s) a file uses. A file using a named provider plus the Vercel SDK reports only the named provider. */
@@ -35,9 +38,25 @@ function runsOn(f: JsFile): "browser" | "server" | "unclear" {
 function aiProviderDetector(spec: ProviderSpec): Detector {
   return {
     id: spec.id,
-    skipReason: (ctx) => (ctx.hasDep(...spec.packages) ? null : `no ${spec.subject} package in dependencies`),
-    run: (ctx) =>
-      ctx.js
+    skipReason: (ctx) => (ctx.hasDep(...spec.packages) || (spec.pyModules.length > 0 && ctx.hasPyImport(...spec.pyModules)) ? null : `no ${spec.subject} package in dependencies`),
+    run: (ctx) => [
+      ...ctx.py
+        .filter((f) => spec.pyModules.length > 0 && importsPy(f, ...spec.pyModules))
+        .map((f): FactDraft => {
+          const imp = importsPy(f, ...spec.pyModules);
+          const model = firstStringKwarg(f.lines, "model");
+          return {
+            kind: "ai_provider",
+            subject: spec.subject,
+            claim: `The app uses the ${spec.subject} SDK from server code.`,
+            attributes: { sdk: imp?.module ?? spec.pyModules[0]!, runsOn: "server", ...(model ? { model } : {}) },
+            confidence: "high",
+            detector: spec.id,
+            key: f.file,
+            locations: [{ file: f.file, ...(imp?.line ? { line: imp.line } : {}) }],
+          };
+        }),
+      ...ctx.js
         .filter((f) => providersIn(f).includes(spec))
         .map((f): FactDraft => {
           const imp = spec.packages.map((p) => importsModule(f, p)).find(Boolean);
@@ -57,6 +76,7 @@ function aiProviderDetector(spec: ProviderSpec): Detector {
             locations: [{ file: f.file, ...(imp?.line ? { line: imp.line } : {}) }],
           };
         }),
+    ],
   };
 }
 
@@ -112,9 +132,30 @@ function payloadIn(f: JsFile): { confidence: "high" | "medium"; line?: number } 
 
 const dataFlowDetector: Detector = {
   id: "data-flow/ai-request-payload",
-  skipReason: (ctx: ScanContext) => (AI_PROVIDERS.some((p) => ctx.hasDep(...p.packages)) ? null : "no AI SDK in dependencies"),
+  skipReason: (ctx: ScanContext) => (AI_PROVIDERS.some((p) => ctx.hasDep(...p.packages) || (p.pyModules.length > 0 && ctx.hasPyImport(...p.pyModules))) ? null : "no AI SDK in dependencies"),
   run: (ctx) => {
     const facts: FactDraft[] = [];
+    for (const f of ctx.py) {
+      const providers = AI_PROVIDERS.filter((p) => p.pyModules.length > 0 && importsPy(f, ...p.pyModules));
+      if (providers.length === 0) continue;
+      const payload = aiPayload(f.lines, f.calls, f.funcs);
+      if (!payload) continue;
+      for (const p of providers) {
+        facts.push({
+          kind: "data_flow",
+          subject: p.subject,
+          claim:
+            payload.confidence === "high"
+              ? `Text taken from a request or function input is included in prompts sent to ${p.subject}.`
+              : `Variable content is included in prompts sent to ${p.subject}; its source isn't clear from the code.`,
+          attributes: { dataCategories: ["user-supplied content"], destination: p.subject, direction: "outbound" },
+          confidence: payload.confidence,
+          detector: "data-flow/ai-request-payload",
+          key: f.file,
+          locations: [{ file: f.file, line: payload.line }],
+        });
+      }
+    }
     for (const f of ctx.js) {
       const providers = providersIn(f);
       if (providers.length === 0) continue;

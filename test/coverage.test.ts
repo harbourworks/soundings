@@ -13,17 +13,17 @@ import { cleanupProjects, project } from "./helpers.js";
 cleanupProjects();
 
 const NOW = new Date("2026-11-11T11:30:00Z");
-const py = (n: number, dir = "backend") => Object.fromEntries(Array.from({ length: n }, (_, i) => [`${dir}/m${i}.py`, "x = 1\n"]));
+const unread = (n: number, dir = "backend") => Object.fromEntries(Array.from({ length: n }, (_, i) => [`${dir}/m${i}.go`, "package main\n"]));
 const nextAuth = (file: string) => `import { getServerSession } from "next-auth";\nexport const s = getServerSession;\n`;
 
-/** The shape that went wrong on real code: a Python back end behind a Next.js front end. */
+/** The shape that went wrong on real code: a Go back end behind a Next.js front end. */
 const mixed = () =>
   project({
     "package.json": JSON.stringify({ name: "mixed", dependencies: { next: "15.0.0", "next-auth": "4.0.0" } }),
     "frontend/a.ts": nextAuth("a"),
     "frontend/b.ts": nextAuth("b"),
     "frontend/c.ts": nextAuth("c"),
-    ...py(5),
+    ...unread(5),
   });
 
 const run = (root: string) => scan({ root, now: NOW }).evidence;
@@ -33,7 +33,7 @@ describe("code the scan can't read", () => {
   const ev = run(mixed());
 
   it("is counted and recorded in the coverage block", () => {
-    expect(ev.scan.unsupported).toEqual([{ language: "Python", files: 5 }]);
+    expect(ev.scan.unsupported).toEqual([{ language: "Go", files: 5 }]);
     expect(EvidenceFile.safeParse(ev).success).toBe(true);
     expect(isCanonical(ev)).toBe(true);
   });
@@ -47,7 +47,7 @@ describe("code the scan can't read", () => {
 
   it("asks what the unread code does, instead", () => {
     const u = ev.unknowns.find((x) => x.id === "UQ-unanalysed-code");
-    expect(u?.question).toMatch(/5 Python files, which Soundings doesn't read/);
+    expect(u?.question).toMatch(/5 Go files, which Soundings doesn't read/);
     expect(u?.question).toMatch(/AI services, databases, sign-in methods and logging/);
   });
 
@@ -57,7 +57,7 @@ describe("code the scan can't read", () => {
 
   it("says so at the top of the report", () => {
     const text = renderTerminal(ev, 1, null).replace(/\x1b\[[0-9;]*m/g, "");
-    expect(text).toContain("Not analysed: 5 Python files. Soundings reads JavaScript and TypeScript, so what that code does is not in this report.");
+    expect(text).toContain("Not analysed: 5 Go files. Soundings reads JavaScript and TypeScript, so what that code does is not in this report.");
   });
 
   it("leaves the question bank asking, not answering 'no'", () => {
@@ -71,15 +71,15 @@ describe("code the scan can't read", () => {
   });
 
   it("uses the team's answer about the unread code, attributed to them", () => {
-    const a = setAnswer(emptyAnswers(), "UQ-unanalysed-code", "The Python API uses PostgreSQL and calls an LLM provider.", NOW);
+    const a = setAnswer(emptyAnswers(), "UQ-unanalysed-code", "The Go API uses PostgreSQL and calls an LLM provider.", NOW);
     const r = answerQuestion(get("data-stores"), ev, a);
     expect(r.status).toBe("answered");
-    expect(r.answer).toMatch(/Parts of the project the scan did not read: The Python API uses PostgreSQL/);
+    expect(r.answer).toMatch(/Parts of the project the scan did not read: The Go API uses PostgreSQL/);
     expect(r.refs).toEqual(["A-001"]);
   });
 
   it("produces documents that still pass the verifier", () => {
-    for (const answers of [emptyAnswers(), setAnswer(emptyAnswers(), "UQ-unanalysed-code", "The Python API uses PostgreSQL and an LLM provider.", NOW)]) {
+    for (const answers of [emptyAnswers(), setAnswer(emptyAnswers(), "UQ-unanalysed-code", "The Go API uses PostgreSQL and an LLM provider.", NOW)]) {
       for (const d of DOCUMENTS) {
         const doc = buildDocument(d.id, ev, answers, { locations: true });
         expect(verifyText(doc.markdown, ev, answers).issues, d.id).toEqual([]);
@@ -90,14 +90,14 @@ describe("code the scan can't read", () => {
 
 describe("a few stray files in another language", () => {
   it("are noted, but don't stop the scan describing what it can see", () => {
-    const e = run(project({ "package.json": JSON.stringify({ name: "x" }), "a.ts": "export {};\n", ...py(2, "scripts") }));
-    expect(e.scan.unsupported).toEqual([{ language: "Python", files: 2 }]);
+    const e = run(project({ "package.json": JSON.stringify({ name: "x" }), "a.ts": "export {};\n", ...unread(2, "scripts") }));
+    expect(e.scan.unsupported).toEqual([{ language: "Go", files: 2 }]);
     expect(e.facts.some((f) => f.detector === "ai-provider/none-found")).toBe(true);
     expect(e.unknowns.some((u) => u.id === "UQ-unanalysed-code")).toBe(false);
   });
 
   it("don't count when they are tests", () => {
-    const e = run(project({ "package.json": JSON.stringify({ name: "x" }), "a.ts": "export {};\n", ...py(6, "tests") }));
+    const e = run(project({ "package.json": JSON.stringify({ name: "x" }), "a.ts": "export {};\n", ...unread(6, "tests") }));
     expect(e.scan.unsupported).toEqual([]);
   });
 });

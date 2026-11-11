@@ -1,6 +1,7 @@
 import { envReads } from "../../core/js.js";
 import type { FactDraft } from "../../evidence/build.js";
 import { createGuard, findLeaks } from "../../evidence/redact.js";
+import { envReadsPy, isSecretName, settingsFields } from "../python/parse.js";
 import type { Detector } from "../types.js";
 
 const PUBLIC_PREFIX = /^(?:NEXT_PUBLIC_|VITE_|REACT_APP_|EXPO_PUBLIC_|NUXT_PUBLIC_|GATSBY_|PUBLIC_)/;
@@ -21,6 +22,13 @@ const envUsage: Detector = {
         if (PUBLIC_PREFIX.test(r.name) || !SECRET_NAME.test(r.name)) continue;
         names.add(r.name);
         locations.push({ file: f.file, line: ctx.project.position(f.file, r.offset).line });
+      }
+    }
+    for (const f of ctx.py) {
+      for (const r of [...envReadsPy(f.lines), ...settingsFields(f.lines)]) {
+        if (PUBLIC_PREFIX.test(r.name) || !isSecretName(r.name)) continue;
+        names.add(r.name);
+        locations.push({ file: f.file, line: r.line });
       }
     }
     if (names.size === 0) return [];

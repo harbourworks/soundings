@@ -1,11 +1,13 @@
 import type { Node } from "@babel/types";
 import { JS_FILE_RE, parseJs, walkAst } from "../core/js.js";
+import { callsOf, functionsOf, importCandidates, importsOf as pyImportsOf, withinModule, type PyImport } from "./python/parse.js";
+import { tokenizePython } from "./python/tokenize.js";
 import type { ProjectFiles } from "../core/project.js";
 import { isSignificant, unsupportedCode } from "./coverage.js";
-import type { ImportInfo, JsFile, ScanContext } from "./types.js";
+import type { ImportInfo, JsFile, PyFile, ScanContext } from "./types.js";
 
 /** Tests, specs and fixtures describe how code is checked, not how the product runs. */
-const NON_PRODUCT = /(^|\/)(tests?|__tests__|specs?|e2e|fixtures|__mocks__)\/|\.(test|spec)\.[cm]?[jt]sx?$/;
+const NON_PRODUCT = /(^|\/)(tests?|__tests__|specs?|e2e|fixtures|__mocks__)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(test_[^/]*|[^/]*_test|conftest)\.py$/;
 export const isProductFile = (file: string): boolean => !NON_PRODUCT.test(file);
 
 function importsOf(ast: Node): ImportInfo[] {
@@ -50,10 +52,21 @@ export function buildContext(project: ProjectFiles): ScanContext {
     if (ast) js.push({ file, ast, imports: importsOf(ast), isClient: isClientFile(ast) });
   }
 
+  const py: PyFile[] = [];
+  for (const file of project.files) {
+    if (!file.endsWith(".py") || !isProductFile(file)) continue;
+    const text = project.read(file);
+    if (text === null) continue;
+    const lines = tokenizePython(text);
+    py.push({ file, lines, imports: pyImportsOf(lines), calls: callsOf(lines), funcs: functionsOf(lines) });
+  }
+
   return {
     project,
     deps,
     js,
+    py,
+    hasPyImport: (...modules) => py.some((f) => importsPy(f, ...modules)),
     hasDep: (...names) => names.some((n) => deps.has(n)),
     hasDepPrefix: (prefix) => [...deps].some((d) => d.startsWith(prefix)),
     hasUnanalysedCode: isSignificant(unsupportedCode(project.files)),
@@ -63,3 +76,7 @@ export function buildContext(project: ProjectFiles): ScanContext {
 /** True when the file imports `source`, or any module under it (`@sentry/` matches `@sentry/nextjs`). */
 export const importsModule = (f: JsFile, source: string): ImportInfo | undefined =>
   f.imports.find((i) => i.source === source || (source.endsWith("/") && i.source.startsWith(source)) || i.source.startsWith(`${source}/`));
+
+/** The first import in a Python file that brings in one of `modules` (or something inside it). */
+export const importsPy = (f: PyFile, ...modules: string[]): PyImport | undefined =>
+  f.imports.find((imp) => importCandidates(imp).some((c) => modules.some((m) => withinModule(c, m))));
