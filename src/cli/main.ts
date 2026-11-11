@@ -5,6 +5,9 @@ import pc from "picocolors";
 import { ConfigError, loadConfig } from "../core/config.js";
 import { RedactionError, assertNoLeaks, createGuard, loadEnvValues } from "../evidence/redact.js";
 import { renderQuestionnaireMarkdown } from "../export/questionnaire.js";
+import { ImportError, fillQuestionnaire } from "../import/fill.js";
+import { verifyText } from "../verify/verify.js";
+import { renderFill, renderVerify } from "../reporters/verify.js";
 import { AnswersError, loadAnswers } from "../questions/answers-file.js";
 import { answerAll, type Pending } from "../questions/engine.js";
 import { QuestionsError, loadEvidence, runQuestions } from "../questions/flow.js";
@@ -30,6 +33,8 @@ const HELP = `
     soundings [scan] [path]     Scan a project (default: current folder) and save its evidence
     soundings questions         Ask only what the code can't answer, and save your answers
     soundings answers           Answer the standard question bank from evidence and your answers
+    soundings answer <file.csv> Fill in a client questionnaire from the bank (never guesses)
+    soundings verify <file>     Check any text against the evidence: every statement needs a source
 
   ${pc.bold("Options")}
     --output <file>             Where to save the evidence or the answers document
@@ -45,13 +50,14 @@ const HELP = `
     --set <key>=<value>         Questions: record an answer (repeatable). Keys: UQ-…,
                                 profile.… or override.<question-id> to replace what the scan says
     --no-locations              Answers: leave file paths out of the sources
+    --strict                    Verify: treat warnings as failures
     -h, --help    -v, --version
 
-  ${pc.bold("Exit codes")}  0 done · 2 error
+  ${pc.bold("Exit codes")}  0 done · 1 verify found problems · 2 error
   ${pc.dim("Scanning makes no network calls. Soundings produces drafts, not legal advice.")}
 `;
 
-const COMMANDS = new Set(["scan", "questions", "answers"]);
+const COMMANDS = new Set(["scan", "questions", "answers", "answer", "verify"]);
 
 export async function run(argv: string[], deps: CliDeps): Promise<number> {
   let parsed;
@@ -70,6 +76,7 @@ export async function run(argv: string[], deps: CliDeps): Promise<number> {
         list: { type: "boolean" },
         set: { type: "string", multiple: true },
         "no-locations": { type: "boolean" },
+        strict: { type: "boolean" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean", short: "v" },
       },
@@ -96,12 +103,14 @@ export async function run(argv: string[], deps: CliDeps): Promise<number> {
   try {
     if (command === "questions") return await runQuestionsCommand(values, deps);
     if (command === "answers") return runAnswersCommand(values, deps);
+    if (command === "answer") return runAnswerCommand(values, target, deps);
+    if (command === "verify") return runVerifyCommand(values, target, deps);
     return runScanCommand(values, target, deps);
   } catch (err) {
     if (err instanceof RedactionError) {
       // The message names the kind of leak and a count, never the value.
       deps.err(`Stopped: ${err.message}. Nothing was written.`);
-    } else if (err instanceof ConfigError || err instanceof QuestionsError || err instanceof AnswersError) {
+    } else if (err instanceof ConfigError || err instanceof QuestionsError || err instanceof AnswersError || err instanceof ImportError) {
       deps.err(err.message);
     } else {
       deps.err(`Something went wrong: ${err instanceof Error ? err.message : String(err)}`);
@@ -190,5 +199,57 @@ function runAnswersCommand(values: Values, deps: CliDeps): number {
   } else {
     deps.out(text);
   }
+  return 0;
+}
+
+function runVerifyCommand(values: Values, file: string | undefined, deps: CliDeps): number {
+  if (!file) {
+    deps.err("Which file? Usage: soundings verify <file>");
+    return 2;
+  }
+  const format = (values.format as string | undefined) ?? "terminal";
+  if (format !== "terminal" && format !== "json") {
+    deps.err(`Unknown format "${format}". Use terminal or json.`);
+    return 2;
+  }
+  const path = resolve(deps.cwd, file);
+  if (!existsSync(path)) {
+    deps.err(`File not found: ${path}`);
+    return 2;
+  }
+  const evidence = loadEvidence(evidencePath(values, deps));
+  const answers = loadAnswers(answersPath(values, deps));
+  const report = verifyText(readFileSync(path, "utf8"), evidence, answers);
+  deps.out(format === "json" ? JSON.stringify(report, null, 2) : renderVerify(report, relative(deps.cwd, path) || file));
+  const failed = !report.ok || (Boolean(values.strict) && report.issues.length > 0);
+  return failed ? 1 : 0;
+}
+
+function runAnswerCommand(values: Values, file: string | undefined, deps: CliDeps): number {
+  if (!file) {
+    deps.err("Which questionnaire? Usage: soundings answer <file.csv>");
+    return 2;
+  }
+  const path = resolve(deps.cwd, file);
+  if (!existsSync(path)) {
+    deps.err(`File not found: ${path}`);
+    return 2;
+  }
+  if (/\.xlsx?$/i.test(path)) {
+    deps.err("Excel files aren't supported yet. In Excel, use File > Save As > CSV UTF-8, then run this again on the CSV.");
+    return 2;
+  }
+  const evidence = loadEvidence(evidencePath(values, deps));
+  const answers = loadAnswers(answersPath(values, deps));
+  const result = fillQuestionnaire(readFileSync(path, "utf8"), evidence, answers);
+
+  assertNoLeaks(result.csv, createGuard(loadEnvValues(deps.cwd)), "filled questionnaire");
+  const outPath = resolve(deps.cwd, (values.output as string | undefined) ?? file.replace(/\.csv$/i, "") + ".answered.csv");
+  if (outPath === path) {
+    deps.err("The output file would overwrite the questionnaire. Choose another with --output.");
+    return 2;
+  }
+  writeFileSync(outPath, result.csv);
+  deps.out(renderFill(result, relative(deps.cwd, outPath) || outPath));
   return 0;
 }

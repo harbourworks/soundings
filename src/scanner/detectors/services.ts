@@ -3,7 +3,7 @@ import { walkAst } from "../../core/js.js";
 import { importsModule } from "../context.js";
 import type { Detector } from "../types.js";
 
-interface ServiceSpec {
+export interface ServiceSpec {
   slug: string;
   subject: string;
   purpose: string;
@@ -14,7 +14,7 @@ interface ServiceSpec {
   integrations?: Array<{ contains: string; value: string }>;
 }
 
-const SERVICES: ServiceSpec[] = [
+export const SERVICES: ServiceSpec[] = [
   {
     slug: "stripe",
     subject: "Stripe",

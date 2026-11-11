@@ -26,7 +26,7 @@ function fromServices(ctx: AnswerCtx, d: Draft, purposes: string[], fallback: st
 
 export const BANK: BankQuestion[] = [
   // ---- AI use
-  q("ai-use", "ai", "Does the system use artificial intelligence or machine-learning services?", ["artificial intelligence", "machine learning", "AI", "LLM", "generative", "large language model"], (ctx) => {
+  q("ai-use", "ai", "Does the system use artificial intelligence or machine-learning services?", ["artificial intelligence", "machine learning", "AI", "LLM", "*generative AI", "generative"], (ctx) => {
     const d = draft();
     const providers = ctx.facts("ai_provider");
     if (providers.length > 0) d.sentences.push(S(`The system uses AI services from ${list(subjectsOf(providers))}.`, ...refsOf(providers)));
@@ -36,7 +36,7 @@ export const BANK: BankQuestion[] = [
     }
     return d;
   }),
-  q("ai-providers", "ai", "Which AI providers and models are used?", ["AI provider", "model", "which AI", "third-party AI", "foundation model", "openai", "anthropic"], (ctx) => {
+  q("ai-providers", "ai", "Which AI providers and models are used?", ["AI provider", "model", "which AI", "third-party AI", "foundation model", "large language model", "language model", "LLM", "openai", "anthropic"], (ctx) => {
     const d = draft();
     const providers = ctx.facts("ai_provider");
     if (providers.length === 0) {
@@ -48,7 +48,7 @@ export const BANK: BankQuestion[] = [
     d.sentences.push(S(`AI providers in use: ${list([...new Set(parts)])}.`, ...refsOf(providers)));
     return d;
   }),
-  q("ai-data-sent", "ai", "What data is sent to AI providers?", ["data sent to AI", "prompts", "inputs to the model", "customer data AI", "personal data AI"], (ctx) => {
+  q("ai-data-sent", "ai", "What data is sent to AI providers?", ["data sent to AI", "prompt", "prompts", "passed to", "sent to AI", "inputs to the model", "personal data AI"], (ctx) => {
     const d = draft();
     if (ctx.facts("ai_provider").length === 0) {
       const none = absenceSentence(ctx, "ai-provider/none-found");
@@ -140,12 +140,12 @@ export const BANK: BankQuestion[] = [
     profile(ctx, d, "encryption-at-rest");
     return d;
   }),
-  q("data-encryption-transit", "data", "Is data encrypted in transit?", ["encryption in transit", "TLS", "HTTPS", "SSL", "transport encryption"], (ctx) => {
+  q("data-encryption-transit", "data", "Is data encrypted in transit?", ["encryption in transit", "*TLS", "*HTTPS", "*SSL", "transport encryption"], (ctx) => {
     const d = draft();
     profile(ctx, d, "encryption-in-transit");
     return d;
   }),
-  q("data-retention", "data", "How long is data kept, and what is the retention policy?", ["retention", "how long", "data kept", "retention period", "storage limitation"], (ctx) => {
+  q("data-retention", "data", "How long is data kept, and what is the retention policy?", ["retention", "how long is data", "data kept", "retention period", "retention policy", "storage limitation"], (ctx) => {
     const d = draft();
     const unknowns = ctx.unknownsWithTopic("Retention");
     if (unknowns.length === 0) {
@@ -156,7 +156,7 @@ export const BANK: BankQuestion[] = [
     for (const u of unknowns) unknownAnswer(ctx, d, u, "Retention and deletion");
     return d;
   }),
-  q("data-deletion", "data", "Can customers or users have their data deleted on request?", ["deletion", "erasure", "right to be forgotten", "delete my data", "data subject request"], (ctx) => {
+  q("data-deletion", "data", "Can customers or users have their data deleted on request?", ["deletion request", "deletion", "*erasure", "right to be forgotten", "delete my data", "delete personal data", "data subject request", "data subject", "request erasure"], (ctx) => {
     const d = draft();
     profile(ctx, d, "deletion-process");
     return d;
@@ -171,12 +171,12 @@ export const BANK: BankQuestion[] = [
     profile(ctx, d, "other-suppliers");
     return d;
   }),
-  q("data-categories", "data", "What categories of personal data are processed?", ["personal data", "categories of data", "special category", "PII", "data types"], (ctx) => {
+  q("data-categories", "data", "What categories of personal data are processed?", ["categories of personal data", "personal data categories", "types of personal data", "what personal data", "special category", "PII", "data types"], (ctx) => {
     const d = draft();
     profile(ctx, d, "personal-data-categories");
     return d;
   }),
-  q("data-separation", "data", "How is one customer's data separated from another's?", ["tenant", "segregation", "separation", "multi-tenant", "row level security", "isolation"], (ctx) => {
+  q("data-separation", "data", "How is one customer's data separated from another's?", ["tenant", "segregation", "segregated", "separated from", "other customers", "separation", "multi-tenant", "row level security", "isolation"], (ctx) => {
     const d = draft();
     const withRls = ctx.facts("data_store").filter((f) => f.attributes.rowLevelSecurity !== undefined);
     if (withRls.length > 0) addFacts(d, withRls);
@@ -193,7 +193,7 @@ export const BANK: BankQuestion[] = [
     }
     return d;
   }),
-  q("auth-mfa", "access", "Is multi-factor authentication supported or required?", ["MFA", "2FA", "two-factor", "multi-factor"], (ctx) => {
+  q("auth-mfa", "access", "Is multi-factor authentication supported or required?", ["*MFA", "*2FA", "*two-factor", "*multi-factor", "*second factor"], (ctx) => {
     const d = draft();
     profile(ctx, d, "mfa");
     return d;
@@ -215,7 +215,7 @@ export const BANK: BankQuestion[] = [
   }),
 
   // ---- Key management
-  q("keys-storage", "keys", "How are secrets and API keys stored?", ["secrets management", "key management", "API keys", "credentials storage", "vault", "environment variables"], (ctx) => {
+  q("keys-storage", "keys", "How are secrets and API keys stored?", ["secrets management", "key management", "how are API keys", "credentials storage", "vault", "environment variables", "secrets stored"], (ctx) => {
     const d = draft();
     if (addFacts(d, ctx.byDetector("secrets/env-usage")) === 0) profile(ctx, d, "secret-storage");
     return d;
@@ -225,7 +225,7 @@ export const BANK: BankQuestion[] = [
     addFacts(d, ctx.byDetector("secrets/hardcoded-patterns"));
     return d;
   }),
-  q("keys-rotation", "keys", "How are keys rotated, and what happens if one is exposed?", ["key rotation", "rotate", "compromised key", "revocation"], (ctx) => {
+  q("keys-rotation", "keys", "How are keys rotated, and what happens if one is exposed?", ["key rotation", "*rotate", "*rotated", "*rotation", "compromised key", "revocation"], (ctx) => {
     const d = draft();
     profile(ctx, d, "secret-rotation");
     return d;
@@ -243,7 +243,7 @@ export const BANK: BankQuestion[] = [
     addFacts(d, ctx.byDetector("logging/request-body"));
     return d;
   }),
-  q("logging-retention", "logging", "How long are logs kept, and who can access them?", ["log retention", "log access", "log storage"], (ctx) => {
+  q("logging-retention", "logging", "How long are logs kept, and who can access them?", ["log retention", "log access", "log storage", "logs retained", "logs kept", "how long are logs", "logs retention"], (ctx) => {
     const d = draft();
     profile(ctx, d, "log-retention");
     return d;
@@ -255,14 +255,14 @@ export const BANK: BankQuestion[] = [
   }),
 
   // ---- Suppliers and subprocessors
-  q("suppliers-list", "suppliers", "Which subprocessors and suppliers are used to deliver the service?", ["subprocessor", "sub-processor", "supplier list", "vendors", "third-party processors"], (ctx) => {
+  q("suppliers-list", "suppliers", "Which subprocessors and suppliers are used to deliver the service?", ["*subprocessor", "*sub-processor", "supplier list", "vendors", "third-party processors", "third-party suppliers", "third-party supplier", "suppliers that process", "who processes"], (ctx) => {
     const d = draft();
     const all = [...ctx.facts("third_party_service"), ...ctx.facts("ai_provider"), ...ctx.facts("data_store")];
     if (all.length > 0) d.sentences.push(S(`The code uses these services: ${list(subjectsOf(all))}.`, ...refsOf(all)));
     profile(ctx, d, "other-suppliers");
     return d;
   }),
-  q("suppliers-payments", "suppliers", "How are payments processed?", ["payment", "card data", "PCI", "payment processor", "billing"], (ctx) => {
+  q("suppliers-payments", "suppliers", "How are payments processed?", ["card data", "*PCI", "payment processor", "payment provider", "payments processed", "process payments", "take payments"], (ctx) => {
     const d = draft();
     fromServices(ctx, d, ["payments"], "payments");
     return d;
@@ -294,7 +294,7 @@ export const BANK: BankQuestion[] = [
     profile(ctx, d, "breach-notification");
     return d;
   }),
-  q("org-dpo", "organisation", "Who is responsible for data protection?", ["DPO", "data protection officer", "privacy contact", "responsible person"], (ctx) => {
+  q("org-dpo", "organisation", "Who is responsible for data protection?", ["*DPO", "data protection officer", "privacy contact", "responsible person"], (ctx) => {
     const d = draft();
     profile(ctx, d, "dpo");
     return d;
@@ -309,12 +309,12 @@ export const BANK: BankQuestion[] = [
     profile(ctx, d, "staff-training");
     return d;
   }),
-  q("org-backup", "organisation", "How is data backed up, and how long would recovery take?", ["backup", "disaster recovery", "business continuity", "RTO", "RPO", "resilience"], (ctx) => {
+  q("org-backup", "organisation", "How is data backed up, and how long would recovery take?", ["backup", "disaster recovery", "business continuity", "*RTO", "*RPO", "recovery time", "recovery point", "resilience"], (ctx) => {
     const d = draft();
     profile(ctx, d, "backup-recovery");
     return d;
   }),
-  q("org-vulnerabilities", "organisation", "How are vulnerabilities identified and fixed?", ["vulnerability management", "patching", "penetration test", "dependency scanning", "security testing"], (ctx) => {
+  q("org-vulnerabilities", "organisation", "How are vulnerabilities identified and fixed?", ["vulnerability management", "*vulnerability", "*vulnerabilities", "patching", "penetration test", "dependency scanning", "security testing"], (ctx) => {
     const d = draft();
     const findings = ctx.evidence.findings;
     if (findings.length > 0) {
@@ -324,12 +324,12 @@ export const BANK: BankQuestion[] = [
     profile(ctx, d, "vulnerability-process");
     return d;
   }),
-  q("org-certifications", "organisation", "Which security certifications or independent assessments do you hold?", ["ISO 27001", "SOC 2", "Cyber Essentials", "certification", "accreditation", "assurance"], (ctx) => {
+  q("org-certifications", "organisation", "Which security certifications or independent assessments do you hold?", ["*ISO 27001", "*SOC 2", "*Cyber Essentials", "certification", "accreditation", "assurance"], (ctx) => {
     const d = draft();
     profile(ctx, d, "certifications");
     return d;
   }),
-  q("org-dpia", "organisation", "Has a data protection impact assessment been carried out?", ["DPIA", "impact assessment", "privacy impact"], (ctx) => {
+  q("org-dpia", "organisation", "Has a data protection impact assessment been carried out?", ["*DPIA", "impact assessment", "privacy impact"], (ctx) => {
     const d = draft();
     profile(ctx, d, "dpia");
     return d;

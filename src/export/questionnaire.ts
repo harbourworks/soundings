@@ -2,7 +2,7 @@ import type { AnswersFile, EvidenceFile } from "../evidence/schema.js";
 import type { QuestionResult } from "../questions/engine.js";
 import { CATEGORY_LABELS, type Category } from "../questions/types.js";
 import { footnoteLines, usedRefs, withFootnoteMarks, type FootnoteOptions } from "./footnotes.js";
-import { DRAFT_NOTICE, NEEDS_INPUT } from "./notice.js";
+import { DRAFT_NOTICE, NEEDS_INPUT, tallyLine } from "./notice.js";
 
 const ORDER: Category[] = ["ai", "data", "access", "keys", "logging", "suppliers", "organisation"];
 
@@ -18,7 +18,7 @@ export function renderQuestionnaireMarkdown(results: QuestionResult[], evidence:
   const done = results.filter((r) => r.status === "answered").length;
   const partial = results.filter((r) => r.status === "partial").length;
   const open = results.length - done - partial;
-  out.push(`${done} of ${results.length} questions are answered from evidence. ${partial} are partly answered and ${open} need input from the project team.`, "");
+  out.push(tallyLine(done, results.length, partial, open), "");
 
   for (const category of ORDER) {
     const inCategory = results.filter((r) => r.category === category);
