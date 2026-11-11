@@ -2,7 +2,6 @@ import { isProductFile } from "./context.js";
 
 /** Languages whose code Soundings does not read. Their files are counted, never analysed. */
 const UNSUPPORTED: Record<string, string> = {
-  py: "Python",
   go: "Go",
   java: "Java",
   kt: "Kotlin",

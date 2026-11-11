@@ -4,6 +4,7 @@ All notable changes to soundings-cli. Versions follow [semantic versioning](http
 
 ## Unreleased
 
+- **Python support.** A built-in tokenizer (no parser dependency) lets the existing detectors read Python: AI SDKs and the prompts built from request data, FastAPI/Flask/Django sign-in, Microsoft Entra (MSAL), PostgreSQL, MySQL, MongoDB, Redis, SQLAlchemy, Azure Blob/Cosmos/AI Search and vector stores, `os.environ`/`getenv`/pydantic settings, and logged request bodies. Database connection strings in configuration are reported at medium confidence. Virtual environments and caches are skipped. A FastAPI fixture with an answer key and decoys covers it.
 - **No false "not found" on mixed-language projects.** Found by scanning a real Python back end with a Next.js front end, which said "No database found". The scan now counts code it can't read and reports it at the top; with three or more such files it makes no "not found" claims and asks what that code does instead (`UQ-unanalysed-code`), and the question bank and documents use your answer.
 - The same finding in several files is now one fact with several locations, not one fact per file.
 - **`soundings document <type>`:** privacy notice, subprocessor list, DPIA draft, AI-use statement and trust page, built only from the scan and your answers (Pro). Gaps are listed as needing your input. Fixed legal-weight wording is isolated in one file and recognised by the verifier only on an exact match.

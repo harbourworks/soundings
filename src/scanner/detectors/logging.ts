@@ -1,5 +1,6 @@
 import type { FactDraft } from "../../evidence/build.js";
 import { REQUEST_BODY, calls, dynamicRoots, isRequestData, requestVariables } from "../ast.js";
+import { loggedRequestBody } from "../python/parse.js";
 import type { Detector } from "../types.js";
 
 const LEVELS = new Set(["log", "info", "debug", "warn", "error", "trace"]);
@@ -39,6 +40,20 @@ const requestBodyLogging: Detector = {
       }
       return [];
     });
+    for (const f of ctx.py) {
+      const hit = loggedRequestBody(f.lines, f.calls, f.funcs);
+      if (!hit) continue;
+      found.push({
+        kind: "logging",
+        subject: "Server logs",
+        claim: "A request body is written to the logs, so it may include user content.",
+        attributes: { logsUserContent: true },
+        confidence: "medium",
+        detector: "logging/request-body",
+        key: f.file,
+        locations: [{ file: f.file, line: hit.line }],
+      });
+    }
     if (found.length > 0 || ctx.hasUnanalysedCode) return found;
     return [
       {

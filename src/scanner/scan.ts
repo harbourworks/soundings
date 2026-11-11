@@ -61,6 +61,22 @@ function unanalysedQuestion(unsupported: ReturnType<typeof unsupportedCode>): Un
   };
 }
 
+const SPECIFIC_SQL = new Set(["PostgreSQL", "MySQL", "Supabase Postgres"]);
+
+/**
+ * Drops a fact when a better one already says the same thing: a connection string for a store a
+ * client import already shows, and the generic SQLAlchemy fact once a specific SQL engine is known.
+ */
+export function dropRedundant(facts: FactDraft[]): FactDraft[] {
+  const stores = facts.filter((f) => f.kind === "data_store");
+  return facts.filter((f) => {
+    if (f.kind !== "data_store") return true;
+    if (f.detector === "data-store/connection-string") return !stores.some((o) => o.subject === f.subject && o.detector !== f.detector);
+    if (f.subject === "SQL database (SQLAlchemy)") return !stores.some((o) => SPECIFIC_SQL.has(o.subject));
+    return true;
+  });
+}
+
 export interface ScanOptions {
   root: string;
   /** Extra ignore patterns, from the config file. */
@@ -110,7 +126,7 @@ export function scan(opts: ScanOptions): ScanOutcome {
     }
   }
 
-  const merged = mergeFacts(facts);
+  const merged = dropRedundant(mergeFacts(facts));
   const findings: FindingDraft[] = opts.seaworthy === undefined ? [] : readSeaworthyReport(opts.seaworthy, merged);
   const info = projectInfo(ctx, opts.root);
 

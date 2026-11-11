@@ -1,0 +1,7 @@
+services:
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+asyncpg://app:${DB_PASSWORD}@db:5432/app
+  db:
+    image: postgres:16

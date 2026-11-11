@@ -35,8 +35,8 @@ function perfectScan(key: AnswerKey) {
   };
 }
 
-it("has the three planned fixtures", () => {
-  expect([...keyFiles].sort()).toEqual(["express-pg.json", "notes-saas.json", "static-site.json"]);
+it("has the four planned fixtures", () => {
+  expect([...keyFiles].sort()).toEqual(["express-pg.json", "fastapi-rag.json", "notes-saas.json", "static-site.json"]);
 });
 
 describe.each(keyFiles)("answer key %s", (file) => {

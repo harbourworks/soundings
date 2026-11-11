@@ -1,0 +1,24 @@
+{
+  "fixture": "fastapi-rag",
+  "project": { "languages": ["python"], "frameworks": ["fastapi"] },
+  "facts": [
+    { "kind": "ai_provider", "subject": "OpenAI", "detector": "ai-provider/openai-sdk", "key": "app/rag.py", "files": ["app/rag.py"], "confidence": "high" },
+    { "kind": "data_flow", "subject": "OpenAI", "detector": "data-flow/ai-request-payload", "key": "app/rag.py", "files": ["app/rag.py"], "confidence": "high" },
+    { "kind": "data_store", "subject": "PostgreSQL", "detector": "data-store/postgres", "key": "app/pool.py", "files": ["app/pool.py"], "confidence": "high" },
+    { "kind": "data_store", "subject": "Azure Blob Storage", "detector": "data-store/azure-blob", "key": "app/storage.py", "files": ["app/storage.py"], "confidence": "high" },
+    { "kind": "auth", "subject": "Microsoft Entra ID", "detector": "auth/entra", "key": "app/entra.py", "files": ["app/entra.py"], "confidence": "high" },
+    { "kind": "auth", "subject": "OAuth2 bearer tokens (FastAPI)", "detector": "auth/fastapi-security", "key": "app/auth.py", "files": ["app/auth.py"], "confidence": "high" },
+    { "kind": "auth", "subject": "JSON Web Tokens", "detector": "auth/jwt", "key": "app/auth.py", "files": ["app/auth.py"], "confidence": "high" },
+    { "kind": "secret_handling", "subject": "Environment variables", "detector": "secrets/env-usage", "key": "env", "files": ["app/config.py"], "confidence": "high" },
+    { "kind": "secret_handling", "subject": "Hard-coded keys", "detector": "secrets/hardcoded-patterns", "key": "project", "files": ["app/config.py"], "confidence": "medium" },
+    { "kind": "logging", "subject": "Server logs", "detector": "logging/request-body", "key": "app/routes.py", "files": ["app/routes.py"], "confidence": "medium" },
+    { "kind": "client_side_exposure", "subject": "Browser-exposed secrets", "detector": "client-exposure/public-secret-name", "key": "project", "files": ["app/config.py"], "confidence": "medium" }
+  ],
+  "unknowns": ["azure-blob-storage-hosting", "openai-data-use", "postgresql-hosting", "retention-deletion"],
+  "decoys": [
+    { "kind": "ai_provider", "subject": "Anthropic", "file": "tests/test_rag.py", "contains": "import anthropic", "why": "Imported only in a test file; tests describe how code is checked, not how the product runs." },
+    { "kind": "ai_provider", "subject": "Anthropic", "file": "app/notes.py", "contains": "# import anthropic", "why": "A commented-out import in a design note, and a docstring saying it is not used." },
+    { "kind": "third_party_service", "subject": "Stripe", "file": "app/notes.py", "contains": "# import stripe", "why": "A commented-out import; the docstring says Stripe is not used." },
+    { "kind": "data_store", "subject": "SQL database (SQLAlchemy)", "file": "app/pool.py", "contains": "create_async_engine", "why": "SQLAlchemy is how the code reaches PostgreSQL. It is reported as the specific engine, not as a second, generic store." }
+  ]
+}
