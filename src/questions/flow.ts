@@ -5,6 +5,7 @@ import { PROFILE_KEYS } from "./profile.js";
 import { AnswersError, loadAnswers, saveAnswers, setAnswer } from "./answers-file.js";
 import { answerAll, pendingNeeds, type Pending, type QuestionResult } from "./engine.js";
 import type { AnswersFile } from "../evidence/schema.js";
+import { documentNeeds } from "../documents/build.js";
 
 export class QuestionsError extends Error {}
 
@@ -37,17 +38,29 @@ export interface QuestionsState {
   stale: string[];
 }
 
-export function stateOf(evidence: EvidenceFile, answers: AnswersFile): QuestionsState {
+export function stateOf(evidence: EvidenceFile, answers: AnswersFile, includeDocuments = false): QuestionsState {
   const results = answerAll(evidence, answers);
   const known = new Set(evidence.unknowns.map((u) => u.id));
   const stale = answers.answers.filter((a) => a.question.startsWith("UQ-") && !known.has(a.question)).map((a) => a.question);
-  return { results, pending: pendingNeeds(evidence, results, answers), stale };
+  const pending = pendingNeeds(evidence, results, answers);
+  if (includeDocuments) {
+    const answered = new Set(answers.answers.map((a) => a.question));
+    for (const n of documentNeeds(evidence, answers)) {
+      if (answered.has(n.key)) continue;
+      const existing = pending.find((p) => p.key === n.key);
+      if (existing) existing.helps.push("documents");
+      else pending.push({ key: n.key, prompt: n.prompt, helps: ["documents"] });
+    }
+  }
+  return { results, pending, stale };
 }
 
 export interface RunOptions {
   evidencePath: string;
   answersPath: string;
   now: Date;
+  /** Also ask what the documents need. */
+  documents?: boolean;
   /** Answers given on the command line, applied before anything is asked. */
   set: Array<[string, string]>;
   /** Asks one question. Returns null to stop, "" to skip. Absent when nobody can answer (piped input, CI). */
@@ -77,7 +90,7 @@ export async function runQuestions(opts: RunOptions): Promise<RunOutcome> {
   for (const [key, value] of opts.set) apply(key, value);
 
   if (opts.ask) {
-    const pending = stateOf(evidence, answers).pending;
+    const pending = stateOf(evidence, answers, opts.documents).pending;
     for (let i = 0; i < pending.length; i++) {
       const reply = await opts.ask(pending[i]!, i, pending.length);
       if (reply === null) break;
@@ -91,5 +104,5 @@ export async function runQuestions(opts: RunOptions): Promise<RunOutcome> {
       }
     }
   }
-  return { state: stateOf(evidence, answers), saved, rejected };
+  return { state: stateOf(evidence, answers, opts.documents), saved, rejected };
 }

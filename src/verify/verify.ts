@@ -1,6 +1,7 @@
 import { extractRefs } from "../evidence/refs.js";
 import type { AnswersFile, EvidenceFile } from "../evidence/schema.js";
-import { DRAFT_NOTICE, TALLY_LINE } from "../export/notice.js";
+import { DRAFT_NOTICE, NOT_YET_PROVIDED, TALLY_LINE } from "../export/notice.js";
+import { isTemplateSentence } from "../documents/templates.js";
 import { PROFILE } from "../questions/profile.js";
 import { entitiesIn } from "./entities.js";
 
@@ -50,7 +51,7 @@ const PLACES = /\b(london|ireland|dublin|frankfurt|paris|amsterdam|stockholm|us-
 const NUMBERS = /(?<![\w.-])\d+(?:[.,]\d+)?(?![\w-])/g;
 const ABSENCE = /\b(no|not|never|without|none|neither|nor|doesn't|does not|do not|don't|isn't|aren't|cannot|can't|nothing)\b/i;
 const QUALIFIER = /\b(inferred|appears?|appeared|suggests?|may|might|likely|probably|not confirmed|possibly)\b/i;
-const OVERCLAIM = /\b(compliant|certified|guarantee[sd]?|guaranteeing|fully secure|100% secure|bank-grade|military-grade|complies with|meets the requirements of)\b/i;
+export const OVERCLAIM =/\b(compliant|certified|guarantee[sd]?|guaranteeing|fully secure|100% secure|bank-grade|military-grade|complies with|meets the requirements of)\b/i;
 const PROJECT_LANGUAGE = /\b(we|our|ours|the (?:app|application|system|service|platform|product|project|code|codebase)|this (?:app|application|system|service|platform|product))\b/i;
 
 interface Block {
@@ -88,9 +89,12 @@ export function sentencesOf(source: string): { sentences: Block[]; noticePresent
     // The document's own tally of answered questions: tested as a whole line, before it is split.
     if (TALLY_LINE.test(line.trim())) return;
 
+    // Fixed wording that ships with Soundings (and is reviewed by its owner) is skipped, but only on an exact match.
+    if (isTemplateSentence(line)) return;
+
     for (const s of line.split(/(?<=[.!?])\s+(?=[A-Z"'(\[])/)) {
       const text = s.trim();
-      if (text.length > 0 && !text.endsWith("?")) sentences.push({ line: i + 1, text });
+      if (text.length > 0 && !text.endsWith("?") && !isTemplateSentence(text)) sentences.push({ line: i + 1, text });
     }
   });
   return { sentences, noticePresent };
@@ -177,7 +181,7 @@ export function verifyText(source: string, evidence: EvidenceFile, answers: Answ
     // 3. Presence and absence must agree with the cited facts.
     const citedFacts = cited.map((r) => facts.get(r.id)).filter((f): f is NonNullable<typeof f> => Boolean(f));
     if (citedFacts.length > 0 && cited.every((r) => r.kind === "EV")) {
-      const bodyForAbsence = body.replace(/\(inferred[^)]*\)/gi, " ").replace(/\bnot confirmed\b/gi, " ");
+      const bodyForAbsence = body.replace(new RegExp(NOT_YET_PROVIDED, "gi"), " ").replace(/\(inferred[^)]*\)/gi, " ").replace(/\bnot confirmed\b/gi, " ");
       const saysAbsent = ABSENCE.test(bodyForAbsence);
       const allObserved = citedFacts.every((f) => f.claimType === "observed" && !ABSENCE.test(f.claim));
       const allNotFound = citedFacts.every((f) => f.claimType === "not-found");
