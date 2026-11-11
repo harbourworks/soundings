@@ -100,3 +100,31 @@ describe("assertNoLeaks", () => {
     expect(() => assertNoLeaks(text, createGuard(), "example evidence")).not.toThrow();
   });
 });
+
+describe("placeholder credentials in examples", () => {
+  it("are not reported: documentation is not a leak", () => {
+    for (const example of [
+      "smtps://user:password@smtp.example.com:465",
+      "smtps://user:pass@smtp.example.com",
+      "postgres://admin:YOUR_PASSWORD@db.internal/app",
+      "scheme://user:password@host",
+      "postgres://app:${DB_PASSWORD}@db/app",
+      "postgres://app:<password>@db/app",
+      "redis://default:changeme@cache:6379",
+      "mysql://root:xxxxxxxx@localhost/db",
+    ]) {
+      expect(findLeaks(`Connect with ${example} in your config.`), example).toEqual([]);
+    }
+  });
+
+  it("still reports a real-looking password", () => {
+    const real = ["postgres://app", rand(20)].join(":") + "@db.internal.example/app";
+    expect(findLeaks(`Use ${real}`).map((l) => l.kind)).toEqual(["credentialed-url"]);
+  });
+
+  it("does not let a placeholder earlier in the text hide a real secret later in it", () => {
+    const real = ["postgres://app", rand(20)].join(":") + "@db.internal.example/app";
+    const text = `Example: smtps://user:password@smtp.example.com.\n\nThe actual one: ${real}`;
+    expect(findLeaks(text).map((l) => l.kind)).toEqual(["credentialed-url"]);
+  });
+});

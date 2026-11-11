@@ -9,7 +9,14 @@ import { join } from "node:path";
  * in memory only: never logged, never written anywhere.
  */
 
-const PATTERNS: Array<{ kind: string; re: RegExp }> = [
+/**
+ * Example text such as `user:password@host`, `YOUR_PASSWORD` or `${DB_PASSWORD}` is documentation,
+ * not a credential. Reporting it would make every example in a README look like a leak.
+ */
+const PLACEHOLDER_PASSWORD =
+  /^(?:pass(?:word)?|pwd|secret|token|changeme|change-me|example|test|dummy|redacted|none|x{3,}|\*+|<[^>]*>|\[[^\]]*\]|\{[^}]*\}|\$\{?[A-Za-z_]\w*\}?|%[A-Za-z_]\w*%|(?:your|my|the)[_-].*|.*[_-](?:here|placeholder))$/i;
+
+const PATTERNS: Array<{ kind: string; re: RegExp; ignore?: (m: RegExpMatchArray) => boolean }> = [
   { kind: "private-key", re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
   { kind: "aws-access-key", re: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/ },
   { kind: "github-token", re: /\bgh[pousr]_[A-Za-z0-9]{30,}\b/ },
@@ -17,7 +24,11 @@ const PATTERNS: Array<{ kind: string; re: RegExp }> = [
   { kind: "slack-token", re: /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/ },
   { kind: "llm-api-key", re: /\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}\b/ },
   { kind: "jwt", re: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/ },
-  { kind: "credentialed-url", re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@[^\s/]+/i },
+  {
+    kind: "credentialed-url",
+    re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:([^\s/@]+)@[^\s/]+/i,
+    ignore: (m) => PLACEHOLDER_PASSWORD.test(m[1] ?? ""),
+  },
 ];
 
 /** Prefixes that frameworks inline into the browser bundle: those values are public already. */
@@ -109,9 +120,14 @@ export function createGuard(envValues: string[] = []): Guard {
 
 export function findLeaks(text: string, guard: Guard = createGuard()): Leak[] {
   const leaks: Leak[] = [];
-  for (const { kind, re } of PATTERNS) {
-    const m = re.exec(text);
-    if (m) leaks.push({ kind, index: m.index });
+  for (const { kind, re, ignore } of PATTERNS) {
+    // Every match is checked, not just the first: a placeholder example must not hide a real secret after it.
+    const global = new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`);
+    for (const m of text.matchAll(global)) {
+      if (ignore?.(m)) continue;
+      leaks.push({ kind, index: m.index ?? 0 });
+      break;
+    }
   }
   for (const v of guard.envValues) {
     const index = text.indexOf(v);
