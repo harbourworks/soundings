@@ -6,8 +6,8 @@ Soundings is source-available. It is not open source in the OSI sense. Two licen
 
 | Part | Licence |
 | --- | --- |
-| Everything in this repository and package **except** `src/pro/` | Functional Source License 1.1, Apache 2.0 future licence (`FSL-1.1-ALv2`), below |
-| `src/pro/`, and the parts of `dist/` compiled from it (the paid features) | Soundings Commercial Licence, in [`LICENSE-COMMERCIAL.md`](LICENSE-COMMERCIAL.md) |
+| Everything in this repository and package **except** the paid features listed in `LICENSE-COMMERCIAL.md` | Functional Source License 1.1, Apache 2.0 future licence (`FSL-1.1-ALv2`), below |
+| The paid features: the files and folders listed in section 1 of [`LICENSE-COMMERCIAL.md`](LICENSE-COMMERCIAL.md), and the parts of `dist/` compiled from them | Soundings Commercial Licence, in [`LICENSE-COMMERCIAL.md`](LICENSE-COMMERCIAL.md) | Soundings Commercial Licence, in [`LICENSE-COMMERCIAL.md`](LICENSE-COMMERCIAL.md) |
 
 In plain terms, and not replacing either licence:
 

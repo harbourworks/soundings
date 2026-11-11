@@ -9,8 +9,8 @@ export default defineConfig({
   banner: {
     js: [
       "#!/usr/bin/env node",
-      "/*! Soundings (c) 2026 Dynamo Maritime Ltd. Licensed under FSL-1.1-ALv2, except code from src/pro/,",
-      " *  which is under the Soundings Commercial Licence. See LICENSE and LICENSE-COMMERCIAL.md. */",
+      "/*! Soundings (c) 2026 Dynamo Maritime Ltd. Licensed under FSL-1.1-ALv2, except the paid features listed in LICENSE-COMMERCIAL.md,",
+      " *  which are under the Soundings Commercial Licence. See LICENSE. */",
     ].join("\n"),
   },
 });
