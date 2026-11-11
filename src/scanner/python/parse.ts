@@ -297,21 +297,26 @@ const AI_CALL_TAILS: string[][] = [
   ["generate_content"],
   ["generate_content_async"],
   ["generate_text"],
+  ["chat", "complete"],
+  ["chat", "complete_async"],
+  ["chat", "stream"],
+  ["chat", "stream_async"],
 ];
 const CONTENT_KEYS: ReadonlySet<string> = new Set(["content", "prompt", "input", "contents", "text", "system", "messages", "query"]);
 
 /**
  * Model calls whose prompt comes from somewhere other than a fixed string. High when it traces to a
  * request or a function parameter (a caller supplies it), medium when it is dynamic but unclear.
+ * `ownTails` are a provider's own call shapes, read only as a method on an object (`co.chat(...)`).
  */
-export function aiPayload(lines: PyLine[], calls: PyCall[], funcs: PyFunc[]): { confidence: "high" | "medium"; line: number } | null {
+export function aiPayload(lines: PyLine[], calls: PyCall[], funcs: PyFunc[], ownTails: string[][] = []): { confidence: "high" | "medium"; line: number } | null {
   const params = new Set(funcs.flatMap((f) => f.params));
   for (const n of handlerInputs(funcs)) params.add(n);
   const reqVars = requestVariables(lines);
   let best: { confidence: "high" | "medium"; line: number } | null = null;
 
   for (const c of calls) {
-    if (!AI_CALL_TAILS.some((t) => callEndsWith(c.chain, t))) continue;
+    if (!AI_CALL_TAILS.some((t) => callEndsWith(c.chain, t)) && !ownTails.some((t) => c.chain.length > t.length && callEndsWith(c.chain, t))) continue;
     const roots = new Set<string>();
     for (const v of valuesOf(c.args, CONTENT_KEYS)) {
       if (v.length === 1 && v[0]!.t === "str" && !isFString(v[0]!.s)) continue; // a fixed string

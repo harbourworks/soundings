@@ -32,7 +32,7 @@ const EXTRA = [
 ];
 
 /** Single words from multi-word subjects that name a vendor on their own ("Vercel Analytics" → Vercel). */
-const VENDOR_WORDS = ["Vercel", "Supabase", "Firebase", "Google", "Plausible", "Stripe", "OpenAI", "Anthropic", "Sentry", "PostHog", "Mixpanel", "Segment", "Resend", "SendGrid", "Postmark", "Twilio", "Clerk", "Auth0", "Hotjar"];
+const VENDOR_WORDS = ["Vercel", "Supabase", "Firebase", "Google", "Bedrock", "Plausible", "Stripe", "OpenAI", "Anthropic", "Sentry", "PostHog", "Mixpanel", "Segment", "Resend", "SendGrid", "Postmark", "Twilio", "Clerk", "Auth0", "Hotjar"];
 
 function build(): string[] {
   const names = new Set<string>();

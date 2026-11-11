@@ -14,12 +14,20 @@ describe("AI providers", () => {
     ["@anthropic-ai/sdk", "Anthropic", `import Anthropic from "@anthropic-ai/sdk";\nexport const c = new Anthropic();\n`],
     ["@google/generative-ai", "Google AI", `import { GoogleGenerativeAI } from "@google/generative-ai";\nexport const c = new GoogleGenerativeAI("x");\n`],
     ["ai", "Vercel AI SDK", `import { generateText } from "ai";\nexport const t = generateText;\n`],
+    ["@mistralai/mistralai", "Mistral", `import { Mistral } from "@mistralai/mistralai";\nexport const c = new Mistral();\n`],
+    ["@ai-sdk/mistral", "Mistral", `import { mistral } from "@ai-sdk/mistral";\nexport const m = mistral("mistral-small-latest");\n`],
+    ["cohere-ai", "Cohere", `import { CohereClientV2 } from "cohere-ai";\nexport const c = new CohereClientV2();\n`],
+    ["@ai-sdk/cohere", "Cohere", `import { cohere } from "@ai-sdk/cohere";\nexport const m = cohere("command-r");\n`],
+    ["groq-sdk", "Groq", `import Groq from "groq-sdk";\nexport const c = new Groq();\n`],
+    ["@ai-sdk/groq", "Groq", `import { groq } from "@ai-sdk/groq";\nexport const m = groq("llama-3.1-8b-instant");\n`],
+    ["@aws-sdk/client-bedrock-runtime", "AWS Bedrock", `import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";\nexport const c = new BedrockRuntimeClient({});\n`],
+    ["@ai-sdk/amazon-bedrock", "AWS Bedrock", `import { bedrock } from "@ai-sdk/amazon-bedrock";\nexport const m = bedrock("amazon.nova-micro-v1:0");\n`],
   ];
   for (const [dep, subject, code] of cases) {
-    it(`flags ${subject} when its SDK is imported`, () => {
+    it(`flags ${subject} when ${dep} is imported`, () => {
       expect(factsOf({ "package.json": pkg([dep]), "src/ai.ts": code })).toContain(`ai_provider|${subject}|${subjectId(subject)}`);
     });
-    it(`ignores ${subject} named only in a comment, a string or a test`, () => {
+    it(`ignores ${subject} (${dep}) named only in a comment, a string or a test`, () => {
       const files = {
         "package.json": pkg([dep]),
         "src/ai.ts": `// import X from "${dep}"\nexport const note = "we looked at ${dep}";\n`,
@@ -38,6 +46,37 @@ describe("AI providers", () => {
     expect(f.filter((x) => x.startsWith("ai_provider"))).toEqual(["ai_provider|OpenAI|ai-provider/openai-sdk"]);
   });
 
+  it.each([
+    ["@mistralai/mistralai", "Mistral", "ai-provider/mistral-sdk"],
+    ["@ai-sdk/cohere", "Cohere", "ai-provider/cohere-sdk"],
+    ["@ai-sdk/groq", "Groq", "ai-provider/groq-sdk"],
+    ["@ai-sdk/amazon-bedrock", "AWS Bedrock", "ai-provider/bedrock-sdk"],
+  ])("reports %s, not the Vercel SDK, when a file uses both", (dep, subject, id) => {
+    const f = factsOf({
+      "package.json": pkg(["ai", dep]),
+      "src/ai.ts": `import { generateText } from "ai";\nimport * as p from "${dep}";\nexport const a = [generateText, p];\n`,
+    });
+    expect(f.filter((x) => x.startsWith("ai_provider"))).toEqual([`ai_provider|${subject}|${id}`]);
+  });
+
+  it("places a new provider's fact at its import line", () => {
+    const e = evidenceOf({
+      "package.json": pkg(["groq-sdk"]),
+      "src/ai.ts": `// Groq is used for quick labels.\nconst LABELS = ["a", "b"];\nimport Groq from "groq-sdk";\nexport const c = new Groq();\nexport { LABELS };\n`,
+    });
+    const f = e.facts.find((x) => x.detector === "ai-provider/groq-sdk");
+    expect(f?.locations).toEqual([{ file: "src/ai.ts", line: 3 }]);
+    expect(f?.attributes.sdk).toBe("groq-sdk");
+  });
+
+  it("does not report a decoy file that names groq-sdk and @mistralai/mistralai only in a comment and a string", () => {
+    const f = factsOf({
+      "package.json": pkg(["groq-sdk", "@mistralai/mistralai"]),
+      "src/options.ts": `// import Groq from "groq-sdk";\n/* import { Mistral } from "@mistralai/mistralai"; */\nexport const CANDIDATES = ["groq-sdk", "@mistralai/mistralai"];\nexport const note = 'require("groq-sdk")';\n`,
+    });
+    expect(f.filter((x) => x.startsWith("ai_provider") || x.startsWith("data_flow"))).toEqual([]);
+  });
+
   it("says whether the SDK is used in the browser", () => {
     const e = evidenceOf({
       "package.json": pkg(["openai"]),
@@ -54,8 +93,76 @@ describe("AI providers", () => {
 });
 
 function subjectId(subject: string): string {
-  return { OpenAI: "ai-provider/openai-sdk", Anthropic: "ai-provider/anthropic-sdk", "Google AI": "ai-provider/google-sdk", "Vercel AI SDK": "ai-provider/vercel-ai-sdk" }[subject]!;
+  return {
+    OpenAI: "ai-provider/openai-sdk",
+    Anthropic: "ai-provider/anthropic-sdk",
+    "Google AI": "ai-provider/google-sdk",
+    "Vercel AI SDK": "ai-provider/vercel-ai-sdk",
+    Mistral: "ai-provider/mistral-sdk",
+    Cohere: "ai-provider/cohere-sdk",
+    Groq: "ai-provider/groq-sdk",
+    "AWS Bedrock": "ai-provider/bedrock-sdk",
+  }[subject]!;
 }
+
+describe("data flow to the newer AI providers", () => {
+  const flowOf = (dep: string, code: string) => {
+    const facts = evidenceOf({ "package.json": pkg([dep]), "src/ai.ts": code }).facts.filter((f) => f.kind === "data_flow");
+    return facts.map((f) => `${f.subject}|${f.confidence}|${f.locations?.[0]?.line}`);
+  };
+
+  it("flags request text sent through Mistral's chat.complete and chat.stream", () => {
+    const head = `import { Mistral } from "@mistralai/mistralai";\nconst client = new Mistral({ apiKey: process.env.MISTRAL_API_KEY });\n`;
+    expect(flowOf("@mistralai/mistralai", `${head}export function ask(text: string) {\n  return client.chat.complete({ model: "mistral-small-latest", messages: [{ role: "user", content: text }] });\n}\n`)).toEqual(["Mistral|high|4"]);
+    expect(flowOf("@mistralai/mistralai", `${head}export function ask(text: string) {\n  return client.chat.stream({ model: "m", messages: [{ role: "user", content: text }] });\n}\n`)).toEqual(["Mistral|high|4"]);
+  });
+
+  it("flags request text sent through Cohere's chat", () => {
+    const code = `import { CohereClientV2 } from "cohere-ai";\nconst cohere = new CohereClientV2({});\nexport async function POST(req: Request) {\n  const body = await req.json();\n  return cohere.chat({ model: "command-r", messages: [{ role: "user", content: body.text }] });\n}\n`;
+    expect(flowOf("cohere-ai", code)).toEqual(["Cohere|high|5"]);
+  });
+
+  it("flags request text sent through Groq's OpenAI-shaped client", () => {
+    const code = `import Groq from "groq-sdk";\nconst groq = new Groq();\nexport function label(ticket: string) {\n  return groq.chat.completions.create({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: ticket }] });\n}\n`;
+    expect(flowOf("groq-sdk", code)).toEqual(["Groq|high|4"]);
+  });
+
+  it("flags request text sent to Bedrock in a ConverseCommand, and through the AI SDK provider", () => {
+    const code = `import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";\nconst client = new BedrockRuntimeClient({ region: "eu-west-2" });\nexport function ask(question: string) {\n  return client.send(new ConverseCommand({ modelId: "amazon.nova-micro-v1:0", messages: [{ role: "user", content: [{ text: question }] }] }));\n}\n`;
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", code)).toEqual(["AWS Bedrock|high|4"]);
+    const viaAiSdk = `import { generateText } from "ai";\nimport { bedrock } from "@ai-sdk/amazon-bedrock";\nexport function ask(question: string) {\n  return generateText({ model: bedrock("amazon.nova-micro-v1:0"), prompt: question });\n}\n`;
+    expect(flowOf("@ai-sdk/amazon-bedrock", viaAiSdk)).toEqual(["AWS Bedrock|high|4"]);
+  });
+
+  it("ignores a fixed prompt in the new call shapes", () => {
+    const mistral = `import { Mistral } from "@mistralai/mistralai";\nconst client = new Mistral();\nexport const r = client.chat.complete({ model: "m", messages: [{ role: "user", content: "Say hello." }] });\n`;
+    expect(flowOf("@mistralai/mistralai", mistral)).toEqual([]);
+    const bedrock = `import { ConverseCommand } from "@aws-sdk/client-bedrock-runtime";\nexport const c = new ConverseCommand({ modelId: "m", messages: [{ role: "user", content: [{ text: "Say hello." }] }] });\n`;
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", bedrock)).toEqual([]);
+  });
+
+  it("reads Cohere's bare chat call and Bedrock's command only in files that import those SDKs", () => {
+    const openaiChat = `import OpenAI from "openai";\nconst bot = new OpenAI();\nexport function ask(text: string) {\n  return bot.chat({ messages: [{ role: "user", content: text }] });\n}\n`;
+    expect(flowOf("openai", openaiChat)).toEqual([]);
+    const openaiCommand = `import OpenAI from "openai";\nimport { ConverseCommand } from "./local";\nexport const o = new OpenAI();\nexport function ask(text: string) {\n  return new ConverseCommand({ messages: [{ role: "user", content: text }] });\n}\n`;
+    expect(flowOf("openai", openaiCommand)).toEqual([]);
+  });
+
+  it("reads a Bedrock stream command through a namespace import, at medium when the source is unclear", () => {
+    const code = `import * as br from "@aws-sdk/client-bedrock-runtime";\nimport { load } from "./x";\nconst note = load();\nexport const cmd = new br.ConverseStreamCommand({ modelId: "m", messages: [{ role: "user", content: [{ text: note }] }] });\n`;
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", code)).toEqual(["AWS Bedrock|medium|4"]);
+  });
+
+  it("does not mistake packages whose names only start with a provider's for that provider", () => {
+    const f = factsOf({ "package.json": pkg(["groq-sdk-extra", "cohere-ai-tools"]), "src/a.ts": `import x from "groq-sdk-extra";\nimport y from "cohere-ai-tools";\nexport const z = [x, y];\n` });
+    expect(f.filter((x) => x.startsWith("ai_provider"))).toEqual([]);
+  });
+
+  it("does not take a local function called chat for Cohere's client method", () => {
+    const code = `import { CohereClientV2 } from "cohere-ai";\nexport const c = new CohereClientV2({});\nfunction chat(x: unknown) { return x; }\nexport function ask(text: string) {\n  return chat({ messages: [{ role: "user", content: text }] });\n}\n`;
+    expect(flowOf("cohere-ai", code)).toEqual([]);
+  });
+});
 
 describe("data flow to AI providers", () => {
   const head = `import OpenAI from "openai";\nconst client = new OpenAI();\n`;

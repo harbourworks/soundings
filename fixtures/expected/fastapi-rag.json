@@ -4,6 +4,13 @@
   "facts": [
     { "kind": "ai_provider", "subject": "OpenAI", "detector": "ai-provider/openai-sdk", "key": "app/rag.py", "files": ["app/rag.py"], "confidence": "high" },
     { "kind": "data_flow", "subject": "OpenAI", "detector": "data-flow/ai-request-payload", "key": "app/rag.py", "files": ["app/rag.py"], "confidence": "high" },
+    { "kind": "ai_provider", "subject": "Mistral", "detector": "ai-provider/mistral-sdk", "key": "app/rewrite.py", "files": ["app/rewrite.py"], "confidence": "high" },
+    { "kind": "data_flow", "subject": "Mistral", "detector": "data-flow/ai-request-payload", "key": "app/rewrite.py", "files": ["app/rewrite.py"], "confidence": "high" },
+    { "kind": "ai_provider", "subject": "Cohere", "detector": "ai-provider/cohere-sdk", "key": "app/rerank.py", "files": ["app/rerank.py"], "confidence": "high" },
+    { "kind": "data_flow", "subject": "Cohere", "detector": "data-flow/ai-request-payload", "key": "app/rerank.py", "files": ["app/rerank.py"], "confidence": "high" },
+    { "kind": "ai_provider", "subject": "Groq", "detector": "ai-provider/groq-sdk", "key": "app/classify.py", "files": ["app/classify.py"], "confidence": "high" },
+    { "kind": "data_flow", "subject": "Groq", "detector": "data-flow/ai-request-payload", "key": "app/classify.py", "files": ["app/classify.py"], "confidence": "high" },
+    { "kind": "ai_provider", "subject": "AWS Bedrock", "detector": "ai-provider/bedrock-sdk", "key": "app/fallback.py", "files": ["app/fallback.py"], "confidence": "high" },
     { "kind": "data_store", "subject": "PostgreSQL", "detector": "data-store/postgres", "key": "app/pool.py", "files": ["app/pool.py"], "confidence": "high" },
     { "kind": "data_store", "subject": "Azure Blob Storage", "detector": "data-store/azure-blob", "key": "app/storage.py", "files": ["app/storage.py"], "confidence": "high" },
     { "kind": "auth", "subject": "Microsoft Entra ID", "detector": "auth/entra", "key": "app/entra.py", "files": ["app/entra.py"], "confidence": "high" },
@@ -14,7 +21,7 @@
     { "kind": "logging", "subject": "Server logs", "detector": "logging/request-body", "key": "app/routes.py", "files": ["app/routes.py"], "confidence": "medium" },
     { "kind": "client_side_exposure", "subject": "Browser-exposed secrets", "detector": "client-exposure/public-secret-name", "key": "project", "files": ["app/config.py"], "confidence": "medium" }
   ],
-  "unknowns": ["azure-blob-storage-hosting", "openai-data-use", "postgresql-hosting", "retention-deletion"],
+  "unknowns": ["aws-bedrock-data-use", "azure-blob-storage-hosting", "cohere-data-use", "groq-data-use", "mistral-data-use", "openai-data-use", "postgresql-hosting", "retention-deletion"],
   "decoys": [
     { "kind": "ai_provider", "subject": "Anthropic", "file": "tests/test_rag.py", "contains": "import anthropic", "why": "Imported only in a test file; tests describe how code is checked, not how the product runs." },
     { "kind": "ai_provider", "subject": "Anthropic", "file": "app/notes.py", "contains": "# import anthropic", "why": "A commented-out import in a design note, and a docstring saying it is not used." },

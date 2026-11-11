@@ -30,6 +30,86 @@
       "confidence": "high"
     },
     {
+      "kind": "ai_provider",
+      "subject": "Mistral",
+      "detector": "ai-provider/mistral-sdk",
+      "key": "src/models/mistral.ts",
+      "files": [
+        "src/models/mistral.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "data_flow",
+      "subject": "Mistral",
+      "detector": "data-flow/ai-request-payload",
+      "key": "src/models/mistral.ts",
+      "files": [
+        "src/models/mistral.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "ai_provider",
+      "subject": "Cohere",
+      "detector": "ai-provider/cohere-sdk",
+      "key": "src/models/cohere.ts",
+      "files": [
+        "src/models/cohere.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "data_flow",
+      "subject": "Cohere",
+      "detector": "data-flow/ai-request-payload",
+      "key": "src/models/cohere.ts",
+      "files": [
+        "src/models/cohere.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "ai_provider",
+      "subject": "Groq",
+      "detector": "ai-provider/groq-sdk",
+      "key": "src/models/groq.ts",
+      "files": [
+        "src/models/groq.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "data_flow",
+      "subject": "Groq",
+      "detector": "data-flow/ai-request-payload",
+      "key": "src/models/groq.ts",
+      "files": [
+        "src/models/groq.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "ai_provider",
+      "subject": "AWS Bedrock",
+      "detector": "ai-provider/bedrock-sdk",
+      "key": "src/models/bedrock.ts",
+      "files": [
+        "src/models/bedrock.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "data_flow",
+      "subject": "AWS Bedrock",
+      "detector": "data-flow/ai-request-payload",
+      "key": "src/models/bedrock.ts",
+      "files": [
+        "src/models/bedrock.ts"
+      ],
+      "confidence": "high"
+    },
+    {
       "kind": "data_store",
       "subject": "PostgreSQL",
       "detector": "data-store/postgres",
@@ -92,6 +172,10 @@
   ],
   "unknowns": [
     "anthropic-data-use",
+    "aws-bedrock-data-use",
+    "cohere-data-use",
+    "groq-data-use",
+    "mistral-data-use",
     "postgresql-hosting",
     "retention-deletion"
   ],
