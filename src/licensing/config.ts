@@ -8,7 +8,7 @@ import type { Tier } from "../core/entitlements.js";
  * To open purchasing: create the product and its licence-key benefit in Polar, then set
  * PURCHASE_URL (the hosted checkout link), PORTAL_URL, and the benefit ID below.
  */
-export const PURCHASE_URL: string | null = null;
+export const PURCHASE_URL: string | null = "https://buy.polar.sh/polar_cl_upd3jUUgQJxylkHMhzMvLW9sEFACty8IJ4iV70cfrnM";
 
 /** Polar's customer portal for Dynamo Maritime: sign in with the purchase email, the key is under the plan. */
 export const PORTAL_URL = "https://polar.sh/dynamo-maritime/portal";
@@ -39,7 +39,7 @@ export const POLAR_SERVERS: Record<"production" | "sandbox", PolarSettings> = {
     // The company's Polar organisation, public in the Seaworthy source. No benefit is listed yet,
     // so licensing stays switched off until a Soundings benefit ID is added.
     organizationId: "a4a6a28a-20f3-4b1f-9211-7eccab46ff92",
-    benefits: {},
+    benefits: { "ec38b34e-d103-432a-b90d-f1759aeeffe6": "pro" },
   },
   sandbox: {
     apiBase: "https://sandbox-api.polar.sh",
