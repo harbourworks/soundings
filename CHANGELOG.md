@@ -4,6 +4,8 @@ All notable changes to soundings-cli. Versions follow [semantic versioning](http
 
 ## Unreleased
 
+- **`soundings verify`:** the claim validator. Checks any text against the evidence: every statement about the project needs a source that exists and mentions what the sentence mentions (services, numbers, places), absence and presence must agree with the cited fact, inferred facts must be worded as inferred, and wording that implies legal assurance is rejected. Local, no model.
+- **`soundings answer <file.csv>`:** fills in a client questionnaire from the bank. Unclear rows are marked and listed, never guessed; filled cells are left alone; the original is never overwritten.
 - **`soundings questions`:** asks only what the code can't answer (scan questions with stable IDs, plus profile questions about how your team runs), saves `soundings-answers.json`, and reuses answers across runs. `--set` for scripts; secrets are refused.
 - **`soundings answers`:** answers a bank of 43 standard questions from evidence and your answers, as Markdown with numbered sources or as JSON. If your answer overrides the scan, the document says so.
 - The scan now records qualified "not found" facts (no AI provider, database, sign-in, request-body logging or browser-exposed secret found), so an answer like "we don't use AI" has something honest to cite.

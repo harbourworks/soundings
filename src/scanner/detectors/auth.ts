@@ -44,14 +44,14 @@ const supabaseAuth: Detector = {
   },
 };
 
-interface AuthSpec {
+export interface AuthSpec {
   slug: string;
   subject: string;
   packages: string[];
   claim: string;
 }
 
-const AUTH_PACKAGES: AuthSpec[] = [
+export const AUTH_PACKAGES: AuthSpec[] = [
   { slug: "jwt", subject: "JSON Web Tokens", packages: ["jsonwebtoken", "jose"], claim: "Requests are authenticated with JSON Web Tokens." },
   { slug: "authjs", subject: "Auth.js", packages: ["next-auth", "@auth/core"], claim: "Sign-in is handled by Auth.js." },
   { slug: "clerk", subject: "Clerk", packages: ["@clerk/nextjs", "@clerk/clerk-react", "@clerk/express", "@clerk/backend"], claim: "Sign-in is handled by Clerk." },

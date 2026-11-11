@@ -80,14 +80,14 @@ const supabase: Detector = {
   },
 };
 
-interface StoreSpec {
+export interface StoreSpec {
   slug: string;
   subject: string;
   engine: string;
   packages: string[];
 }
 
-const STORES: StoreSpec[] = [
+export const STORES: StoreSpec[] = [
   { slug: "postgres", subject: "PostgreSQL", engine: "postgres", packages: ["pg", "postgres", "pg-promise"] },
   { slug: "mongodb", subject: "MongoDB", engine: "mongodb", packages: ["mongodb", "mongoose"] },
   { slug: "redis", subject: "Redis", engine: "redis", packages: ["redis", "ioredis", "@upstash/redis"] },

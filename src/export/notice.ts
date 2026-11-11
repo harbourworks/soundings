@@ -9,3 +9,12 @@ export const DRAFT_NOTICE =
   "Please review it before sending.";
 
 export const NEEDS_INPUT = "Needs your input.";
+
+/**
+ * The one line Soundings writes about the document itself rather than the project: how many
+ * questions are answered. The verifier skips exactly this line and nothing that merely resembles it.
+ */
+export const TALLY_LINE = /^\d+ of \d+ questions are answered from evidence\. \d+ (?:is|are) partly answered and \d+ needs? input from the project team\.$/;
+
+export const tallyLine = (done: number, total: number, partial: number, open: number): string =>
+  `${done} of ${total} questions are answered from evidence. ${partial} ${partial === 1 ? "is" : "are"} partly answered and ${open} ${open === 1 ? "needs" : "need"} input from the project team.`;
