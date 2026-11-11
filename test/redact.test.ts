@@ -30,8 +30,8 @@ describe("pattern checks", () => {
     ["github-token", `ghp_${rand(36)}`],
     ["stripe-key", `sk_live_${rand(24)}`],
     ["jwt", `${b64url({ alg: "HS256" })}.${b64url({ sub: "1234567890" })}.${rand(43)}`],
-    ["private-key", "-----BEGIN RSA PRIVATE KEY-----"],
-    ["credentialed-url", `postgres://app:${rand(20)}@db.internal.example/app`],
+    ["private-key", ["-----BEGIN", "RSA PRIVATE KEY-----"].join(" ")],
+    ["credentialed-url", ["postgres://app", rand(20)].join(":") + "@db.internal.example/app"],
   ];
   for (const [kind, secret] of cases) {
     it(`flags a ${kind}`, () => {

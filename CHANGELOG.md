@@ -4,6 +4,10 @@ All notable changes to soundings-cli. Versions follow [semantic versioning](http
 
 ## Unreleased
 
+- **`soundings scan`:** a local scanner with 35 detectors for AI providers, data sent to them, third-party services, sign-in, data stores (with Supabase row-level security state), secret handling, request-body logging and browser exposure. It writes the evidence file and prints a plain-English report.
+- Questions the code can't answer are raised with stable IDs (`UQ-supabase-region`).
+- Optional `--seaworthy` report ingestion, linked to the facts each finding bears on.
+- Self-scan in CI.
 - Evidence schema 0.2 with content-derived IDs, scan coverage and a claim-marker parser.
 - Redaction guard that fails on secret formats and on values from the project's `.env` files.
 - Three fixture projects with answer keys, including decoys a scan must not report.

@@ -1,12 +1,50 @@
 {
   "fixture": "static-site",
-  "project": { "languages": ["html"], "frameworks": [] },
+  "project": {
+    "languages": [
+      "html"
+    ],
+    "frameworks": []
+  },
   "facts": [
-    { "kind": "third_party_service", "subject": "Plausible Analytics", "detector": "third-party/plausible-analytics", "key": "index.html", "files": ["index.html"], "confidence": "high" }
+    {
+      "kind": "third_party_service",
+      "subject": "Plausible Analytics",
+      "detector": "third-party/plausible-analytics",
+      "key": "index.html",
+      "files": [
+        "index.html"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "secret_handling",
+      "subject": "Hard-coded keys",
+      "detector": "secrets/hardcoded-patterns",
+      "key": "project",
+      "files": [
+        "index.html"
+      ],
+      "confidence": "medium"
+    }
   ],
-  "unknowns": ["hosting-location"],
+  "unknowns": [
+    "hosting-location"
+  ],
   "decoys": [
-    { "kind": "ai_provider", "subject": "OpenAI", "file": "blog/post.md", "contains": "OpenAI", "why": "Named in blog prose saying the site does not use it." },
-    { "kind": "third_party_service", "subject": "Stripe", "file": "blog/post.md", "contains": "Stripe", "why": "Named in blog prose saying the site does not use it." }
+    {
+      "kind": "ai_provider",
+      "subject": "OpenAI",
+      "file": "blog/post.md",
+      "contains": "OpenAI",
+      "why": "Named in blog prose saying the site does not use it."
+    },
+    {
+      "kind": "third_party_service",
+      "subject": "Stripe",
+      "file": "blog/post.md",
+      "contains": "Stripe",
+      "why": "Named in blog prose saying the site does not use it."
+    }
   ]
 }

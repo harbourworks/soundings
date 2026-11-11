@@ -1,9 +1,10 @@
-import { VERSION } from "../version.js";
+import { run } from "./main.js";
 
-// Phase 0 placeholder: the scan command arrives in Phase 1.
-const args = process.argv.slice(2);
-if (args.includes("--version") || args.includes("-v")) {
-  console.log(VERSION);
-} else {
-  console.log(`Soundings ${VERSION} (pre-release). Scanning is not built yet.`);
-}
+const code = await run(process.argv.slice(2), {
+  out: (s) => console.log(s),
+  err: (s) => console.error(s),
+  env: process.env,
+  cwd: process.cwd(),
+  now: () => new Date(),
+});
+process.exitCode = code;

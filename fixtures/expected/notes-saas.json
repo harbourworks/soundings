@@ -1,21 +1,141 @@
 {
   "fixture": "notes-saas",
-  "project": { "languages": ["typescript"], "frameworks": ["nextjs", "react", "stripe", "supabase-js"] },
+  "project": {
+    "languages": [
+      "typescript"
+    ],
+    "frameworks": [
+      "nextjs",
+      "react",
+      "stripe",
+      "supabase-js"
+    ]
+  },
   "facts": [
-    { "kind": "ai_provider", "subject": "OpenAI", "detector": "ai-provider/openai-sdk", "key": "app/api/summarise/route.ts", "files": ["app/api/summarise/route.ts"], "confidence": "high" },
-    { "kind": "data_flow", "subject": "OpenAI", "detector": "data-flow/ai-request-payload", "key": "app/api/summarise/route.ts", "files": ["app/api/summarise/route.ts"], "confidence": "high" },
-    { "kind": "data_store", "subject": "Supabase Postgres", "detector": "data-store/supabase", "key": "supabase/migrations/001_init.sql", "files": ["supabase/migrations/001_init.sql"], "confidence": "high" },
-    { "kind": "auth", "subject": "Supabase Auth", "detector": "auth/supabase-auth", "key": "lib/auth.ts", "files": ["lib/auth.ts"], "confidence": "high" },
-    { "kind": "third_party_service", "subject": "Stripe", "detector": "third-party/stripe", "key": "app/api/checkout/route.ts", "files": ["app/api/checkout/route.ts"], "confidence": "high" },
-    { "kind": "third_party_service", "subject": "Vercel Analytics", "detector": "third-party/vercel-analytics", "key": "app/layout.tsx", "files": ["app/layout.tsx"], "confidence": "high" },
-    { "kind": "secret_handling", "subject": "Environment variables", "detector": "secrets/env-usage", "key": "env", "files": ["app/api/summarise/route.ts"], "confidence": "high" },
-    { "kind": "logging", "subject": "Server logs", "detector": "logging/request-body", "key": "app/api/summarise/route.ts", "files": ["app/api/summarise/route.ts"], "confidence": "medium" }
+    {
+      "kind": "ai_provider",
+      "subject": "OpenAI",
+      "detector": "ai-provider/openai-sdk",
+      "key": "app/api/summarise/route.ts",
+      "files": [
+        "app/api/summarise/route.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "data_flow",
+      "subject": "OpenAI",
+      "detector": "data-flow/ai-request-payload",
+      "key": "app/api/summarise/route.ts",
+      "files": [
+        "app/api/summarise/route.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "data_store",
+      "subject": "Supabase Postgres",
+      "detector": "data-store/supabase",
+      "key": "supabase/migrations/001_init.sql",
+      "files": [
+        "supabase/migrations/001_init.sql"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "auth",
+      "subject": "Supabase Auth",
+      "detector": "auth/supabase-auth",
+      "key": "lib/auth.ts",
+      "files": [
+        "lib/auth.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "third_party_service",
+      "subject": "Stripe",
+      "detector": "third-party/stripe",
+      "key": "app/api/checkout/route.ts",
+      "files": [
+        "app/api/checkout/route.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "third_party_service",
+      "subject": "Vercel Analytics",
+      "detector": "third-party/vercel-analytics",
+      "key": "app/layout.tsx",
+      "files": [
+        "app/layout.tsx"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "secret_handling",
+      "subject": "Environment variables",
+      "detector": "secrets/env-usage",
+      "key": "env",
+      "files": [
+        "app/api/summarise/route.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "logging",
+      "subject": "Server logs",
+      "detector": "logging/request-body",
+      "key": "app/api/summarise/route.ts",
+      "files": [
+        "app/api/summarise/route.ts"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "kind": "secret_handling",
+      "subject": "Hard-coded keys",
+      "detector": "secrets/hardcoded-patterns",
+      "key": "project",
+      "files": [
+        "app/api/summarise/route.ts"
+      ],
+      "confidence": "medium"
+    }
   ],
-  "unknowns": ["openai-data-use", "retention-deletion", "supabase-region"],
+  "unknowns": [
+    "openai-data-use",
+    "retention-deletion",
+    "supabase-region"
+  ],
   "decoys": [
-    { "kind": "ai_provider", "subject": "Anthropic", "file": "docs/ROADMAP.md", "contains": "Anthropic", "why": "Named in a roadmap note as a future idea; no SDK or call exists." },
-    { "kind": "third_party_service", "subject": "Firebase", "file": "docs/ROADMAP.md", "contains": "Firebase", "why": "Named in a roadmap note as a future idea; nothing uses it." },
-    { "kind": "third_party_service", "subject": "Resend", "file": "lib/email.ts", "contains": "// import { Resend }", "why": "Commented-out import; the service is not used." },
-    { "kind": "client_side_exposure", "subject": "Supabase anon key", "file": "lib/supabase.ts", "contains": "NEXT_PUBLIC_SUPABASE_ANON_KEY", "why": "The anon key is public by design; row-level security protects the data. It is not an exposed secret." }
+    {
+      "kind": "ai_provider",
+      "subject": "Anthropic",
+      "file": "docs/ROADMAP.md",
+      "contains": "Anthropic",
+      "why": "Named in a roadmap note as a future idea; no SDK or call exists."
+    },
+    {
+      "kind": "third_party_service",
+      "subject": "Firebase",
+      "file": "docs/ROADMAP.md",
+      "contains": "Firebase",
+      "why": "Named in a roadmap note as a future idea; nothing uses it."
+    },
+    {
+      "kind": "third_party_service",
+      "subject": "Resend",
+      "file": "lib/email.ts",
+      "contains": "// import { Resend }",
+      "why": "Commented-out import; the service is not used."
+    },
+    {
+      "kind": "client_side_exposure",
+      "subject": "Supabase anon key",
+      "file": "lib/supabase.ts",
+      "contains": "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      "why": "The anon key is public by design; row-level security protects the data. It is not an exposed secret."
+    }
   ]
 }
