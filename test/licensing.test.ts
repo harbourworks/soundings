@@ -141,16 +141,16 @@ describe("Polar", () => {
   };
   const good = { organization_id: "org-1", benefit_id: "benefit-pro", status: "granted", display_key: "SD-1234", expires_at: null };
 
-  it("production starts switched off, so no call can be made until a Soundings benefit is added", () => {
-    expect(isConfigured(POLAR_SERVERS.production)).toBe(false);
+  it("production is configured with the Soundings benefit; the sandbox stays off until its own IDs are added", () => {
+    expect(isConfigured(POLAR_SERVERS.production)).toBe(true);
     expect(isConfigured(POLAR_SERVERS.sandbox)).toBe(false);
-    expect(PURCHASE_URL).toBeNull();
-    expect(purchasingOpen()).toBe(false);
+    expect(PURCHASE_URL).toMatch(/^https:\/\/buy\.polar\.sh\/polar_cl_/);
+    expect(purchasingOpen()).toBe(true);
   });
 
   it("makes no network call at all while unconfigured", async () => {
     // test/setup.ts makes any real fetch throw; the unconfigured provider must not reach it.
-    const p = new PolarProvider(POLAR_SERVERS.production);
+    const p = new PolarProvider({ apiBase: "https://api.example.test", organizationId: "00000000-0000-0000-0000-000000000000", benefits: {} });
     expect(await p.activate("k", "m")).toMatchObject({ ok: false, reason: "not-configured" });
     expect(await p.validate("k", null)).toMatchObject({ ok: false, reason: "not-configured" });
   });
@@ -217,13 +217,14 @@ describe("the licence commands", () => {
     return { out, err, deps };
   }
 
-  it("buy says purchasing isn't open yet, rather than printing a dead link", async () => {
+  it("buy shows the checkout link and what to do after paying", async () => {
     const l = unlicensed();
     const h = harness(project({}), l);
     expect(await run(["buy"], h.deps)).toBe(0);
     const text = plain(h.out);
-    expect(text).toContain("aren't open for purchase yet");
-    expect(text).not.toMatch(/https:\/\/buy\./);
+    expect(text).toContain(PURCHASE_URL!);
+    expect(text).toContain("After paying");
+    expect(text).toContain("polar.sh/dynamo-maritime/portal");
   });
 
   it("status on a machine with no licence shows Free and the free features", async () => {
@@ -323,7 +324,7 @@ describe("gating", () => {
     expect(text).toContain("soundings answers");
     expect(text).toContain("part of Soundings Pro");
     expect(text).toContain("Free, with no licence needed: scanning, the report, the questions and verifying any text");
-    expect(text).toContain("aren't open for purchase yet");
+    expect(text).toContain(PURCHASE_URL!);
 
     const b = harness(cwd, l);
     expect(await run(["answer", "client.csv"], b.deps)).toBe(3);
