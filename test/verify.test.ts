@@ -57,6 +57,17 @@ describe("each kind of bad output is rejected", () => {
     expect(codes(`We use Anthropic for summaries [${openai}].`)).toContain("entity-not-in-source");
   });
 
+  it("a newer AI provider named against a source about a different one, including Bedrock on its own", () => {
+    const ticketApi = evidence("express-pg");
+    const anthropic = idOf(ticketApi, (f) => f.subject === "Anthropic" && f.kind === "ai_provider");
+    const bedrockFlow = idOf(ticketApi, (f) => f.subject === "AWS Bedrock" && f.kind === "data_flow");
+    for (const name of ["Mistral", "Cohere", "Groq", "AWS Bedrock", "Bedrock"]) {
+      expect(codes(`Ticket text is sent to ${name} [${anthropic}].`, ticketApi), name).toContain("entity-not-in-source");
+    }
+    expect(codes(`Ticket text is sent to Bedrock to rate urgency [${bedrockFlow}].`, ticketApi)).toEqual([]);
+    expect(codes(`Ticket text is sent to AWS Bedrock to rate urgency [${bedrockFlow}].`, ticketApi)).toEqual([]);
+  });
+
   it("a number the source doesn't contain", () => {
     expect(codes("Logs are kept for 30 days [A-002].")).toContain("number-not-in-source");
     expect(codes("Logs are kept for 90 days [A-002].")).toEqual([]);

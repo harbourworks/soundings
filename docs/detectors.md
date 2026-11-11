@@ -2,7 +2,7 @@
 
 Each detector reads one family of facts and says where it stops. Detectors read the structure of your code (imports, calls, property names), so a package named in a comment, a string or a test file is not mistaken for a real use. Tests, specs and fixtures are left out of every code detector. Anything outside the supported list is reported as "couldn't determine", never guessed.
 
-Supported: JavaScript, TypeScript and Python projects (Next.js, Node/Express, FastAPI, Flask, Django), Supabase, Firebase, Stripe, Azure, and the OpenAI, Anthropic, Google and Vercel AI SDKs.
+Supported: JavaScript, TypeScript and Python projects (Next.js, Node/Express, FastAPI, Flask, Django), Supabase, Firebase, Stripe, Azure, and the OpenAI, Anthropic, Google, Mistral, Cohere, Groq, AWS Bedrock and Vercel AI SDKs.
 
 Every detector ID below appears in the `scan` block of the evidence file when it ran, or in `detectorsSkipped` with the reason it didn't.
 
@@ -13,8 +13,12 @@ Every detector ID below appears in the `scan` block of the evidence file when it
 | `ai-provider/openai-sdk` | Imports of `openai` or `@ai-sdk/openai`; the model name if it is a string in the file | Doesn't know which account or plan is used |
 | `ai-provider/anthropic-sdk` | Imports of `@anthropic-ai/sdk` or `@ai-sdk/anthropic` | Same |
 | `ai-provider/google-sdk` | Imports of `@google/generative-ai`, `@google/genai` or `@ai-sdk/google` | Same |
+| `ai-provider/mistral-sdk` | Imports of `@mistralai/mistralai` or `@ai-sdk/mistral`; Python `mistralai` or `langchain_mistralai` | Same |
+| `ai-provider/cohere-sdk` | Imports of `cohere-ai` or `@ai-sdk/cohere`; Python `cohere` or `langchain_cohere` | Same |
+| `ai-provider/groq-sdk` | Imports of `groq-sdk` or `@ai-sdk/groq`; Python `groq` | Same |
+| `ai-provider/bedrock-sdk` | Imports of `@aws-sdk/client-bedrock-runtime` or `@ai-sdk/amazon-bedrock`; Python `langchain_aws` | Doesn't know which account, region or model vendor on Bedrock is used. A `boto3` Bedrock client is not read yet |
 | `ai-provider/vercel-ai-sdk` | Imports of `ai`; reported only when no named provider is used in the same file | Can't see which model provider is configured elsewhere |
-| `data-flow/ai-request-payload` | Calls that send a prompt to a model. **High** when the prompt contains data from a request or a function parameter; **medium** when it is dynamic but its source isn't clear | A fixed prompt is not reported. It can't tell what data a caller passes in |
+| `data-flow/ai-request-payload` | Calls that send a prompt to a model, including Mistral's `chat.complete` and `chat.stream`. Two shapes are read only in files that import the SDK: Cohere's client `chat` and `chatStream` (`chat_stream` in Python), and Bedrock's `new ConverseCommand(…)` and `new ConverseStreamCommand(…)` (JavaScript). **High** when the prompt contains data from a request or a function parameter; **medium** when it is dynamic but its source isn't clear | A fixed prompt is not reported. It can't tell what data a caller passes in |
 
 ## Third-party services
 

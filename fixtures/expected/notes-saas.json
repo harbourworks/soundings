@@ -121,6 +121,27 @@
   "decoys": [
     {
       "kind": "ai_provider",
+      "subject": "Groq",
+      "file": "lib/model-options.ts",
+      "contains": "\"groq-sdk\"",
+      "why": "Named in a comment, a commented-out import and a string list of SDKs that were evaluated; nothing imports it."
+    },
+    {
+      "kind": "ai_provider",
+      "subject": "Mistral",
+      "file": "lib/model-options.ts",
+      "contains": "\"@mistralai/mistralai\"",
+      "why": "Named only in a comment and in strings, including one that quotes an import statement; nothing imports it."
+    },
+    {
+      "kind": "data_flow",
+      "subject": "Mistral",
+      "file": "lib/model-options.ts",
+      "contains": "@mistralai/mistralai",
+      "why": "No Mistral client exists, so no prompt can be sent to it."
+    },
+    {
+      "kind": "ai_provider",
       "subject": "Anthropic",
       "file": "docs/ROADMAP.md",
       "contains": "Anthropic",

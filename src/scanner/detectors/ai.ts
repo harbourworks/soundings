@@ -1,6 +1,7 @@
 import type { FactDraft } from "../../evidence/build.js";
 import { walkAst } from "../../core/js.js";
-import { calls, dynamicRoots, endsWith, firstStringProperty, paramNames, requestVariables } from "../ast.js";
+import type { Node } from "@babel/types";
+import { calls, chainOf, dynamicRoots, endsWith, firstStringProperty, lineOf, paramNames, requestVariables } from "../ast.js";
 import { importsModule, importsPy } from "../context.js";
 import { aiPayload, firstStringKwarg } from "../python/parse.js";
 import type { Detector, JsFile, ScanContext } from "../types.js";
@@ -12,12 +13,35 @@ interface ProviderSpec {
   packages: string[];
   /** Python modules that mean the same provider. */
   pyModules: string[];
+  /**
+   * Call shapes too generic to read in every AI file (`co.chat(...)`), read only in files that import
+   * this provider, and only as a method on an object. `js` and `py` are dotted-name tails.
+   */
+  calls?: { js?: string[][]; py?: string[][] };
+  /** Command classes whose constructor takes the prompt: `new ConverseCommand({ messages })`. */
+  commands?: string[];
 }
 
 export const AI_PROVIDERS: ProviderSpec[] = [
   { id: "ai-provider/openai-sdk", subject: "OpenAI", packages: ["openai", "@ai-sdk/openai"], pyModules: ["openai", "langchain_openai"] },
   { id: "ai-provider/anthropic-sdk", subject: "Anthropic", packages: ["@anthropic-ai/sdk", "@ai-sdk/anthropic"], pyModules: ["anthropic", "langchain_anthropic"] },
   { id: "ai-provider/google-sdk", subject: "Google AI", packages: ["@google/generative-ai", "@google/genai", "@ai-sdk/google"], pyModules: ["google.generativeai", "google.genai", "langchain_google_genai", "vertexai"] },
+  { id: "ai-provider/mistral-sdk", subject: "Mistral", packages: ["@mistralai/mistralai", "@ai-sdk/mistral"], pyModules: ["mistralai", "langchain_mistralai"] },
+  {
+    id: "ai-provider/cohere-sdk",
+    subject: "Cohere",
+    packages: ["cohere-ai", "@ai-sdk/cohere"],
+    pyModules: ["cohere", "langchain_cohere"],
+    calls: { js: [["chat"], ["chatStream"]], py: [["chat"], ["chat_stream"]] },
+  },
+  { id: "ai-provider/groq-sdk", subject: "Groq", packages: ["groq-sdk", "@ai-sdk/groq"], pyModules: ["groq"] },
+  {
+    id: "ai-provider/bedrock-sdk",
+    subject: "AWS Bedrock",
+    packages: ["@aws-sdk/client-bedrock-runtime", "@ai-sdk/amazon-bedrock"],
+    pyModules: ["langchain_aws"],
+    commands: ["ConverseCommand", "ConverseStreamCommand"],
+  },
   { id: "ai-provider/vercel-ai-sdk", subject: "Vercel AI SDK", packages: ["ai"], pyModules: [] },
 ];
 
@@ -91,6 +115,8 @@ const AI_CALL_TAILS: string[][] = [
   ["messages", "stream"],
   ["generateContent"],
   ["generateContentStream"],
+  ["chat", "complete"],
+  ["chat", "stream"],
 ];
 const AI_CALL_FUNCTIONS = new Set(["generateText", "streamText", "generateObject", "streamObject", "embed", "embedMany"]);
 const CONTENT_KEYS = new Set(["content", "prompt", "input", "contents", "text", "system", "messages"]);
@@ -100,19 +126,35 @@ const CONTENT_KEYS = new Set(["content", "prompt", "input", "contents", "text", 
  * "high" when that content traces to a request or a function parameter (a caller supplies it),
  * "medium" when it is dynamic but its source isn't clear.
  */
-function payloadIn(f: JsFile): { confidence: "high" | "medium"; line?: number } | null {
+function payloadIn(f: JsFile, providers: ProviderSpec[]): { confidence: "high" | "medium"; line?: number } | null {
   const requestVars = requestVariables(f.ast);
   const params = paramNames(f.ast);
+  const ownTails = providers.flatMap((p) => p.calls?.js ?? []);
+  const commands = new Set(providers.flatMap((p) => p.commands ?? []));
   let best: { confidence: "high" | "medium"; line?: number } | null = null;
 
+  const sends: Array<{ args: Node[]; line?: number }> = [];
   for (const call of calls(f.ast)) {
     const isAiCall =
       (call.chain !== null && AI_CALL_TAILS.some((t) => endsWith(call.chain, t))) ||
-      (call.chain !== null && call.chain.length === 1 && AI_CALL_FUNCTIONS.has(call.chain[0]!));
-    if (!isAiCall || call.node.type !== "CallExpression") continue;
+      (call.chain !== null && call.chain.length === 1 && AI_CALL_FUNCTIONS.has(call.chain[0]!)) ||
+      (call.chain !== null && ownTails.some((t) => call.chain!.length > t.length && endsWith(call.chain, t)));
+    if (isAiCall && call.node.type === "CallExpression") sends.push({ args: call.node.arguments, ...(call.line ? { line: call.line } : {}) });
+  }
+  if (commands.size > 0) {
+    walkAst(f.ast, (n) => {
+      if (n.type !== "NewExpression") return undefined;
+      const chain = chainOf(n.callee);
+      const line = lineOf(n);
+      if (chain && commands.has(chain[chain.length - 1]!)) sends.push({ args: n.arguments, ...(line ? { line } : {}) });
+      return undefined;
+    });
+  }
 
+  sends.sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
+  for (const call of sends) {
     const roots = new Set<string>();
-    for (const arg of call.node.arguments) {
+    for (const arg of call.args) {
       walkAst(arg, (n) => {
         if (n.type === "ObjectProperty" && !n.computed) {
           const key = n.key.type === "Identifier" ? n.key.name : n.key.type === "StringLiteral" ? n.key.value : null;
@@ -138,7 +180,7 @@ const dataFlowDetector: Detector = {
     for (const f of ctx.py) {
       const providers = AI_PROVIDERS.filter((p) => p.pyModules.length > 0 && importsPy(f, ...p.pyModules));
       if (providers.length === 0) continue;
-      const payload = aiPayload(f.lines, f.calls, f.funcs);
+      const payload = aiPayload(f.lines, f.calls, f.funcs, providers.flatMap((p) => p.calls?.py ?? []));
       if (!payload) continue;
       for (const p of providers) {
         facts.push({
@@ -159,7 +201,7 @@ const dataFlowDetector: Detector = {
     for (const f of ctx.js) {
       const providers = providersIn(f);
       if (providers.length === 0) continue;
-      const payload = payloadIn(f);
+      const payload = payloadIn(f, providers);
       if (!payload) continue;
       for (const p of providers) {
         facts.push({
