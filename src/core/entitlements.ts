@@ -34,7 +34,7 @@ export const FEATURE_LABELS: Record<Feature, string> = {
   answers: "Answering the question bank as a document",
   "questionnaire-import": "Filling in a client's questionnaire",
   documents: "Privacy notice, subprocessor list, DPIA draft, AI-use statement and trust page",
-  exports: "Word and HTML exports",
+  exports: "Exports to Word and HTML",
 };
 
 /** What stays free, said wherever a paid feature is mentioned. */
