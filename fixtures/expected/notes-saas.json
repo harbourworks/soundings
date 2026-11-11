@@ -101,6 +101,16 @@
         "app/api/summarise/route.ts"
       ],
       "confidence": "medium"
+    },
+    {
+      "kind": "client_side_exposure",
+      "subject": "Browser-exposed secrets",
+      "detector": "client-exposure/public-secret-name",
+      "key": "project",
+      "files": [
+        "app/api/summarise/route.ts"
+      ],
+      "confidence": "medium"
     }
   ],
   "unknowns": [

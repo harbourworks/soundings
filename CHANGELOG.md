@@ -4,6 +4,9 @@ All notable changes to soundings-cli. Versions follow [semantic versioning](http
 
 ## Unreleased
 
+- **`soundings questions`:** asks only what the code can't answer (scan questions with stable IDs, plus profile questions about how your team runs), saves `soundings-answers.json`, and reuses answers across runs. `--set` for scripts; secrets are refused.
+- **`soundings answers`:** answers a bank of 43 standard questions from evidence and your answers, as Markdown with numbered sources or as JSON. If your answer overrides the scan, the document says so.
+- The scan now records qualified "not found" facts (no AI provider, database, sign-in, request-body logging or browser-exposed secret found), so an answer like "we don't use AI" has something honest to cite.
 - **`soundings scan`:** a local scanner with 35 detectors for AI providers, data sent to them, third-party services, sign-in, data stores (with Supabase row-level security state), secret handling, request-body logging and browser exposure. It writes the evidence file and prints a plain-English report.
 - Questions the code can't answer are raised with stable IDs (`UQ-supabase-region`).
 - Optional `--seaworthy` report ingestion, linked to the facts each finding bears on.

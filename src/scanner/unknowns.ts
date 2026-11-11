@@ -11,7 +11,9 @@ const slug = (s: string) =>
  * What the code can't tell us, turned into questions. Each question is raised only when a fact
  * makes it relevant, and its ID comes from its subject so it stays the same between scans.
  */
-export function unknownsFor(facts: FactDraft[]): UnknownDraft[] {
+export function unknownsFor(all: FactDraft[]): UnknownDraft[] {
+  // A "not found" fact is the absence of something; it never makes a question relevant.
+  const facts = all.filter((f) => f.claimType !== "not-found");
   const out = new Map<string, UnknownDraft>();
   const add = (u: UnknownDraft) => out.set(u.key, u);
 
