@@ -29,6 +29,7 @@ try {
     cwd: process.cwd(),
     now: () => new Date(),
     ...(asker ? { ask: asker.ask } : {}),
+    interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY && !process.env.CI),
   });
 } finally {
   asker?.close();

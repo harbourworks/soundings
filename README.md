@@ -4,7 +4,7 @@
 
 Soundings scans a project on your own machine and records what it finds: which AI providers it calls, where data is stored and sent, how users sign in, how keys are handled. Answers to a client's security questionnaire are then built from those findings, and anything the code can't tell it becomes a question for you. Your code never leaves your machine.
 
-Status: pre-release, under construction. Scanning, questions, answers, questionnaire import and verification work; licensing and the remaining documents are being built. Nothing is published yet.
+Status: pre-release, under construction. Scanning, questions, answers, questionnaire import, verification and licensing work; the remaining documents are being built. Nothing is published yet.
 
 ```
 soundings scan .                         # what does the code show?
@@ -40,6 +40,8 @@ soundings verify draft.md                # check any text against the evidence
 - **Fills in a client's questionnaire.** Rows that clearly match a bank question are answered; everything else is marked and listed, never guessed.
 - **Checks any text.** `soundings verify` fails any statement without a real source that mentions what it claims, so an AI assistant's draft can be trusted only as far as it can be checked.
 
+Scanning, questions and verification are free and make no network calls. The answers documents and questionnaire import are Soundings Pro; see [docs/plans.md](docs/plans.md) for exactly what the one licence check sends.
+
 See [docs/questions.md](docs/questions.md), [docs/questionnaires.md](docs/questionnaires.md), [docs/verify.md](docs/verify.md), [docs/detectors.md](docs/detectors.md) for what each detector reads and where it stops, and [docs/evidence-format.md](docs/evidence-format.md) for the file format.
 
 ## Options
@@ -53,7 +55,8 @@ soundings answers           Answer the question bank (--output, --format markdow
   --format terminal|json    Report format
   --seaworthy <file>        Include findings from a Seaworthy JSON report
   --config <file>           Config file (default: <path>/soundings.config.json)
-soundings answer <file.csv> Fill in a client questionnaire (CSV)
+soundings answer <file.csv> Fill in a client questionnaire (CSV)            Pro
+soundings buy | login <key> | logout | status    Plans and licence
 soundings verify <file>     Check text against the evidence (--strict, --format json)
 ```
 

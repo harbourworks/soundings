@@ -38,3 +38,32 @@ export function factsOf(files: Record<string, string>): string[] {
 export function evidenceOf(files: Record<string, string>) {
   return scan({ root: project(files), now: new Date("2026-11-11T11:30:00Z") }).evidence;
 }
+
+import { LicenceStore } from "../src/licensing/store.js";
+import { MockProvider } from "../src/licensing/mock.js";
+
+export const LICENCE_NOW = new Date("2026-11-11T11:30:00Z");
+export const TEST_KEY = "SOUNDINGS-TEST-PRO-0001";
+
+/** A machine that is already logged in with a fresh Pro licence: no licence call is needed to use it. */
+export function licensed(): { env: NodeJS.ProcessEnv; provider: MockProvider; store: LicenceStore } {
+  const dir = project({});
+  const provider = new MockProvider().addKey(TEST_KEY, "pro");
+  const store = new LicenceStore(dir);
+  store.save({
+    version: 1,
+    key: TEST_KEY,
+    activationId: "act-test",
+    machineLabel: "test-machine",
+    tier: "pro",
+    displayKey: "****-000001",
+    lastValidatedAt: LICENCE_NOW.toISOString(),
+  });
+  return { env: { SOUNDINGS_CONFIG_DIR: dir }, provider, store };
+}
+
+/** A machine with no licence at all, using a mock server so any call is visible. */
+export function unlicensed(): { env: NodeJS.ProcessEnv; provider: MockProvider; store: LicenceStore } {
+  const dir = project({});
+  return { env: { SOUNDINGS_CONFIG_DIR: dir }, provider: new MockProvider().addKey(TEST_KEY, "pro"), store: new LicenceStore(dir) };
+}

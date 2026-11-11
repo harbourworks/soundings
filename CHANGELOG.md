@@ -4,6 +4,7 @@ All notable changes to soundings-cli. Versions follow [semantic versioning](http
 
 ## Unreleased
 
+- **Licensing with Polar:** `soundings buy`, `login`, `logout` and `status`. `answers` and `answer` need Soundings Pro (exit code 3 with a clear message otherwise); scanning, questions and verify stay free and never call the network. A saved check is trusted for 24 hours, a licence works offline for 14 days after its last check, `--offline` never calls, and `SOUNDINGS_LICENCE` serves CI without using a machine slot. Purchasing stays switched off until the Polar products are configured.
 - **`soundings verify`:** the claim validator. Checks any text against the evidence: every statement about the project needs a source that exists and mentions what the sentence mentions (services, numbers, places), absence and presence must agree with the cited fact, inferred facts must be worded as inferred, and wording that implies legal assurance is rejected. Local, no model.
 - **`soundings answer <file.csv>`:** fills in a client questionnaire from the bank. Unclear rows are marked and listed, never guessed; filled cells are left alone; the original is never overwritten.
 - **`soundings questions`:** asks only what the code can't answer (scan questions with stable IDs, plus profile questions about how your team runs), saves `soundings-answers.json`, and reuses answers across runs. `--set` for scripts; secrets are refused.
