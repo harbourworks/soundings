@@ -5,6 +5,8 @@ import pc from "picocolors";
 import { ConfigError, loadConfig } from "../core/config.js";
 import { RedactionError, assertNoLeaks, createGuard, loadEnvValues } from "../evidence/redact.js";
 import { renderQuestionnaireMarkdown } from "../export/questionnaire.js";
+import { DOCUMENTS, buildDocument, documentNeeds, isDocumentId } from "../documents/build.js";
+import { EXPORT_FORMATS, isExportFormat, renderExport, type ExportFormat } from "../export/render.js";
 import { ImportError, fillQuestionnaire } from "../import/fill.js";
 import { verifyText } from "../verify/verify.js";
 import { renderFill, renderVerify } from "../reporters/verify.js";
@@ -48,6 +50,8 @@ const HELP = `
   ${pc.bold("Pro")}
     soundings answers           Answer the standard question bank from evidence and your answers
     soundings answer <file.csv> Fill in a client questionnaire from the bank (never guesses)
+    soundings document <type>   Privacy notice, subprocessors, dpia, ai-use or trust-page
+                                (run with no type to list them)
 
   ${pc.bold("Plans")}
     soundings buy               See the plans and open the checkout
@@ -60,12 +64,15 @@ const HELP = `
                                 (scan: ./soundings-evidence.json; answers: print to screen)
     --no-write                  Scan: print the report but don't save the evidence file
     --format terminal|json      Scan report format (default: terminal)
-    --format markdown|json      Answers format (default: markdown)
+    --format markdown|html|docx Answers and documents format (default: markdown; html and
+                                docx need --output; to make a PDF, print the HTML to PDF).
+                                Answers also accept json.
     --seaworthy <file>          Scan: include findings from a Seaworthy JSON report
     --config <file>             Scan: config file (default: <path>/soundings.config.json)
     --evidence <file>           Evidence file (default: ./soundings-evidence.json)
     --answers <file>            Answers file (default: ./soundings-answers.json)
     --list                      Questions: show what is left, without asking
+    --documents                 Questions: also ask what the documents need
     --set <key>=<value>         Questions: record an answer (repeatable). Keys: UQ-…,
                                 profile.… or override.<question-id> to replace what the scan says
     --no-locations              Answers: leave file paths out of the sources
@@ -79,7 +86,7 @@ const HELP = `
   ${pc.dim("Soundings produces drafts, not legal advice.")}
 `;
 
-const COMMANDS = new Set(["scan", "questions", "answers", "answer", "verify", "buy", "login", "logout", "status"]);
+const COMMANDS = new Set(["scan", "questions", "answers", "answer", "document", "verify", "buy", "login", "logout", "status"]);
 
 export async function run(argv: string[], deps: CliDeps): Promise<number> {
   let parsed;
@@ -96,6 +103,7 @@ export async function run(argv: string[], deps: CliDeps): Promise<number> {
         evidence: { type: "string" },
         answers: { type: "string" },
         list: { type: "boolean" },
+        documents: { type: "boolean" },
         set: { type: "string", multiple: true },
         "no-locations": { type: "boolean" },
         strict: { type: "boolean" },
@@ -127,15 +135,24 @@ export async function run(argv: string[], deps: CliDeps): Promise<number> {
 
   try {
     if (command === "questions") return await runQuestionsCommand(values, deps);
-    if (["buy", "login", "logout", "status", "answers", "answer"].includes(command)) {
+    if (["buy", "login", "logout", "status", "answers", "answer", "document"].includes(command)) {
       const lic = licenceCtx(values, deps);
       if (command === "buy") return buy(lic);
       if (command === "login") return await login(target, lic);
       if (command === "logout") return await logout(lic);
       if (command === "status") return await status(lic);
-      const gate = await requireFeature(command === "answers" ? "answers" : "questionnaire-import", command, lic);
+      if (command === "document" && !target) return runDocumentList(deps);
+      const feature = command === "answers" ? "answers" : command === "document" ? "documents" : "questionnaire-import";
+      const gate = await requireFeature(feature, command, lic);
       if (gate !== null) return gate;
-      return command === "answers" ? runAnswersCommand(values, deps) : runAnswerCommand(values, target, deps);
+      const fmt = (values.format as string | undefined) ?? "markdown";
+      if (fmt === "html" || fmt === "docx") {
+        const exportGate = await requireFeature("exports", `${command} --format ${fmt}`, lic);
+        if (exportGate !== null) return exportGate;
+      }
+      if (command === "answers") return runAnswersCommand(values, deps);
+      if (command === "document") return runDocumentCommand(values, target!, deps);
+      return runAnswerCommand(values, target, deps);
     }
     if (command === "verify") return runVerifyCommand(values, target, deps);
     return runScanCommand(values, target, deps);
@@ -216,6 +233,7 @@ async function runQuestionsCommand(values: Values, deps: CliDeps): Promise<numbe
     answersPath: aPath,
     now: deps.now(),
     set,
+    documents: Boolean(values.documents),
     ...(values.list || !deps.ask ? {} : { ask: deps.ask }),
   });
   for (const r of outcome.rejected) deps.err(`Skipped ${r.key}: ${r.reason}`);
@@ -225,30 +243,70 @@ async function runQuestionsCommand(values: Values, deps: CliDeps): Promise<numbe
 
 function runAnswersCommand(values: Values, deps: CliDeps): number {
   const format = (values.format as string | undefined) ?? "markdown";
-  if (format !== "markdown" && format !== "json") {
-    deps.err(`Unknown format "${format}". Use markdown or json.`);
+  if (format !== "json" && !isExportFormat(format)) {
+    deps.err(`Unknown format "${format}". Use markdown, html, docx or json.`);
     return 2;
   }
   const evidence = loadEvidence(evidencePath(values, deps));
   const answers = loadAnswers(answersPath(values, deps));
   const results = answerAll(evidence, answers);
 
-  const text =
+  const markdown = renderQuestionnaireMarkdown(results, evidence, answers, { project: evidence.project.name, locations: !values["no-locations"] });
+  const output =
     format === "json"
       ? JSON.stringify({ project: evidence.project.name, results }, null, 2)
-      : renderQuestionnaireMarkdown(results, evidence, answers, { project: evidence.project.name, locations: !values["no-locations"] });
+      : renderExport(markdown, format as ExportFormat, { title: `Security and data handling answers: ${evidence.project.name}`, created: evidence.generatedAt });
+  return emit(output, values, deps, "answers document", `Saved ${results.length} answers to`);
+}
 
-  // Documents leave the team, so they get the same secret check as the evidence file.
-  assertNoLeaks(text, createGuard(loadEnvValues(deps.cwd)), "answers document");
+/** Writes or prints a finished document. Binary output needs a file. Text gets the secret check first. */
+function emit(output: string | Buffer, values: Values, deps: CliDeps, label: string, savedPrefix: string): number {
+  if (typeof output === "string") assertNoLeaks(output, createGuard(loadEnvValues(deps.cwd)), label);
+  else assertNoLeaks(output.toString("latin1"), createGuard(loadEnvValues(deps.cwd)), label);
 
   if (values.output) {
     const path = resolve(deps.cwd, values.output as string);
-    writeFileSync(path, text.endsWith("\n") ? text : `${text}\n`);
-    deps.out(`Saved ${results.length} answers to ${relative(deps.cwd, path) || path}.`);
-  } else {
-    deps.out(text);
+    writeFileSync(path, output);
+    deps.out(`${savedPrefix} ${relative(deps.cwd, path) || path}.`);
+    return 0;
   }
+  if (typeof output !== "string") {
+    deps.err("Word files can't be printed to the screen. Add --output <file.docx>.");
+    return 2;
+  }
+  deps.out(output);
   return 0;
+}
+
+function runDocumentList(deps: CliDeps): number {
+  const lines = ["", "  Documents (each built only from the scan and your answers):", ""];
+  for (const d of DOCUMENTS) lines.push(`    ${d.id.padEnd(15)}${d.title}: ${d.about}`);
+  lines.push("", "  soundings document <type> [--format markdown|html|docx] [--output <file>]", "");
+  deps.out(lines.join("\n"));
+  return 0;
+}
+
+function runDocumentCommand(values: Values, type: string, deps: CliDeps): number {
+  const aliases: Record<string, string> = { privacy: "privacy-notice", subprocessor: "subprocessors", ai: "ai-use", trust: "trust-page" };
+  const id = aliases[type] ?? type;
+  if (!isDocumentId(id)) {
+    deps.err(`Unknown document "${type}". Choose one of: ${DOCUMENTS.map((d) => d.id).join(", ")}.`);
+    return 2;
+  }
+  const format = (values.format as string | undefined) ?? "markdown";
+  if (!isExportFormat(format)) {
+    deps.err(`Unknown format "${format}". Use ${EXPORT_FORMATS.join(", ")}.`);
+    return 2;
+  }
+  const evidence = loadEvidence(evidencePath(values, deps));
+  const answers = loadAnswers(answersPath(values, deps));
+  const built = buildDocument(id, evidence, answers, { locations: !values["no-locations"] });
+  const output = renderExport(built.markdown, format, { title: `${built.title}: ${evidence.project.name}`, created: evidence.generatedAt });
+  const code = emit(output, values, deps, `${built.title.toLowerCase()}`, `Saved the ${built.title.toLowerCase()} to`);
+  if (code === 0 && built.needs.length > 0 && values.output) {
+    deps.out(`${built.needs.length} item${built.needs.length === 1 ? "" : "s"} still need your input; they are listed under "Open items". Run: soundings questions --documents`);
+  }
+  return code;
 }
 
 function runVerifyCommand(values: Values, file: string | undefined, deps: CliDeps): number {

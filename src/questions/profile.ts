@@ -42,6 +42,12 @@ export const PROFILE: Record<string, ProfileItem> = Object.fromEntries([
   item("certifications", "Which security certifications or independent assessments do you hold, if any? Say 'none' if none.", "Certifications and assessments"),
   item("dpia", "Has a data protection impact assessment been carried out for this system?", "Impact assessment"),
   item("supplier-diligence", "How do you check the security of your suppliers?", "Supplier checks"),
+  item("organisation-name", "What is the legal name of the organisation responsible for this service?", "Responsible organisation"),
+  item("service-description", "In a sentence or two, what does this service do and who uses it?", "About the service"),
+  item("lawful-basis", "What is the lawful basis for processing personal data in this service (for example contract, legitimate interests, consent)?", "Lawful basis"),
+  item("ai-purpose", "What is AI used for in this service?", "Purpose of AI use"),
+  item("dpia-consultation", "Who has been consulted about this processing (for example users, the data protection contact, a security adviser)?", "Consultation"),
+  item("dpia-risk-measures", "What measures have been chosen to reduce the risks to individuals that this assessment identifies?", "Measures to reduce risk"),
 ]);
 
 export const PROFILE_KEYS = new Set(Object.values(PROFILE).map((p) => p.key));

@@ -18,3 +18,6 @@ export const TALLY_LINE = /^\d+ of \d+ questions are answered from evidence\. \d
 
 export const tallyLine = (done: number, total: number, partial: number, open: number): string =>
   `${done} of ${total} questions are answered from evidence. ${partial} ${partial === 1 ? "is" : "are"} partly answered and ${open} ${open === 1 ? "needs" : "need"} input from the project team.`;
+
+/** What a table cell says when the team hasn't supplied the information yet. */
+export const NOT_YET_PROVIDED = "Not yet provided";
