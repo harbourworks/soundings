@@ -139,7 +139,7 @@ function storeDetector(spec: StoreSpec): Detector {
 }
 
 /** Engines an ORM can name, keyed by how Prisma's `provider` or Drizzle's schema module writes them. */
-const ENGINES: Record<string, { subject: string; engine: string }> = {
+export const ENGINES: Record<string, { subject: string; engine: string }> = {
   postgresql: { subject: "PostgreSQL", engine: "postgresql" },
   postgres: { subject: "PostgreSQL", engine: "postgresql" },
   mysql: { subject: "MySQL", engine: "mysql" },
@@ -149,8 +149,15 @@ const ENGINES: Record<string, { subject: string; engine: string }> = {
   cockroachdb: { subject: "CockroachDB", engine: "cockroachdb" },
 };
 
-/** Blanks `//` comments (and `///` doc comments) without moving anything, so offsets still give the right line. */
-const blankLineComments = (text: string) => text.replace(/\/\/[^\n]*/g, (c) => " ".repeat(c.length));
+/** A double-quoted Prisma string on one line. */
+const PRISMA_STRING = /"(?:[^"\\\n]|\\.)*"/.source;
+
+/**
+ * Blanks `//` comments (and `///` doc comments) without moving anything, so offsets still give the
+ * right line. A `//` inside a string (a url's scheme, `postgresql://…`) is not a comment.
+ */
+const blankLineComments = (text: string) =>
+  text.replace(new RegExp(`${PRISMA_STRING}|\\/\\/[^\\n]*`, "g"), (m) => (m.startsWith("//") ? " ".repeat(m.length) : m));
 
 /**
  * The `provider` of each `datasource` block in a Prisma schema, with its line. Only the provider is
@@ -161,9 +168,10 @@ function prismaProviders(text: string): Array<{ provider: string; offset: number
   const out: Array<{ provider: string; offset: number }> = [];
   for (const block of code.matchAll(/\bdatasource\s+\w+\s*\{([^}]*)\}/g)) {
     const body = block[1]!;
-    const m = /(?:^|\n)\s*provider\s*=\s*"([^"\n]*)"/.exec(body);
+    // `provider` anywhere in the block, even after the url on one line, but never inside a string.
+    const m = [...body.matchAll(new RegExp(`${PRISMA_STRING}|\\bprovider\\s*=\\s*"([^"\\n]*)"`, "g"))].find((x) => x[0].startsWith("provider"));
     if (!m) continue;
-    const start = (block.index ?? 0) + block[0].indexOf(body) + m.index + m[0].indexOf("provider");
+    const start = (block.index ?? 0) + block[0].indexOf(body) + (m.index ?? 0);
     out.push({ provider: m[1]!.trim().toLowerCase(), offset: start });
   }
   return out;

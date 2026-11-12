@@ -341,6 +341,27 @@ describe("ORMs: Prisma and Drizzle", () => {
     expect(JSON.stringify(f)).not.toContain("DIRECT_URL");
   });
 
+  it("reads a one-line datasource, with the provider after a url that holds //", () => {
+    const cases: Array<[string, string]> = [
+      ['datasource db { provider = "postgresql" url = env("DATABASE_URL") }', "PostgreSQL"],
+      ['datasource db { url = "file:./dev.db" provider = "sqlite" }', "SQLite"],
+      ['datasource db { url = "mongodb+srv://cluster.example/app" provider = "mongodb" }', "MongoDB"],
+    ];
+    for (const [schema, subject] of cases) {
+      const f = stores(prisma({ "prisma/schema.prisma": `${schema}\n`, "src/db.ts": client }));
+      expect(f.map((x) => [x.subject, x.detector]), schema).toEqual([[subject, "data-store/prisma"]]);
+      expect(f[0]!.locations).toEqual([{ file: "prisma/schema.prisma", line: 1 }]);
+      expect(JSON.stringify(f)).not.toContain("cluster.example");
+    }
+  });
+
+  it("doesn't read a provider written inside a string, or after a // that ends a line", () => {
+    const inString = 'datasource db {\n  url = "x provider = \\"mysql\\""\n}\n';
+    expect(stores(prisma({ "prisma/schema.prisma": inString, "src/db.ts": client })).map((x) => x.subject)).toEqual(["SQL database (Prisma)"]);
+    const afterComment = 'datasource db {\n  url = "file:./dev.db" // provider = "sqlite"\n}\n';
+    expect(stores(prisma({ "prisma/schema.prisma": afterComment, "src/db.ts": client })).map((x) => x.subject)).toEqual(["SQL database (Prisma)"]);
+  });
+
   it("reads a multi-file schema, wherever the datasource block is", () => {
     const f = stores(prisma({ "prisma/schema/models.prisma": "model Note {\n  id Int @id\n}\n", "prisma/schema/base.prisma": SCHEMA, "src/db.ts": client }));
     expect(f.map((x) => x.subject)).toEqual(["PostgreSQL"]);

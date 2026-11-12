@@ -68,6 +68,17 @@ describe("each kind of bad output is rejected", () => {
     expect(codes(`Ticket text is sent to AWS Bedrock to rate urgency [${bedrockFlow}].`, ticketApi)).toEqual([]);
   });
 
+  it("a database engine only the Prisma or Drizzle detectors name, uncited or cited against another engine", () => {
+    const hono = evidence("hono-drizzle");
+    const postgres = idOf(hono, (f) => f.subject === "PostgreSQL" && f.kind === "data_store");
+    expect(codes("Customer records are kept in CockroachDB.", hono)).toEqual(["missing-reference"]);
+    expect(codes("Backups go to SQL Server.", hono)).toEqual(["missing-reference"]);
+    for (const name of ["SQLite", "SQL Server", "CockroachDB", "MongoDB"]) {
+      expect(codes(`The app stores data in ${name} [${postgres}].`, hono), name).toContain("entity-not-in-source");
+    }
+    expect(codes(`The app stores data in PostgreSQL [${postgres}].`, hono)).toEqual([]);
+  });
+
   it("a number the source doesn't contain", () => {
     expect(codes("Logs are kept for 30 days [A-002].")).toContain("number-not-in-source");
     expect(codes("Logs are kept for 90 days [A-002].")).toEqual([]);
