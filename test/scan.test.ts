@@ -11,7 +11,7 @@ cleanupProjects();
 
 const ROOT = resolve(__dirname, "../fixtures");
 const NOW = new Date("2026-11-11T11:30:00Z");
-const names = ["notes-saas", "express-pg", "static-site", "fastapi-rag"];
+const names = ["notes-saas", "express-pg", "static-site", "fastapi-rag", "next-prisma", "hono-drizzle"];
 
 describe.each(names)("scanning the %s fixture", (name) => {
   const key = AnswerKey.parse(JSON.parse(readFileSync(join(ROOT, "expected", `${name}.json`), "utf8")));

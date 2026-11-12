@@ -1,5 +1,5 @@
 import type { FactDraft } from "../../evidence/build.js";
-import { importsModule, importsPy } from "../context.js";
+import { importsModule, importsPy, isProductFile } from "../context.js";
 import type { Detector } from "../types.js";
 
 const SUPABASE_SQL = /(^|\/)supabase\/(migrations\/.+|schema)\.sql$/;
@@ -138,6 +138,125 @@ function storeDetector(spec: StoreSpec): Detector {
   };
 }
 
+/** Engines an ORM can name, keyed by how Prisma's `provider` or Drizzle's schema module writes them. */
+export const ENGINES: Record<string, { subject: string; engine: string }> = {
+  postgresql: { subject: "PostgreSQL", engine: "postgresql" },
+  postgres: { subject: "PostgreSQL", engine: "postgresql" },
+  mysql: { subject: "MySQL", engine: "mysql" },
+  sqlite: { subject: "SQLite", engine: "sqlite" },
+  mongodb: { subject: "MongoDB", engine: "mongodb" },
+  sqlserver: { subject: "SQL Server", engine: "sqlserver" },
+  cockroachdb: { subject: "CockroachDB", engine: "cockroachdb" },
+};
+
+/** A double-quoted Prisma string on one line. */
+const PRISMA_STRING = /"(?:[^"\\\n]|\\.)*"/.source;
+
+/**
+ * Blanks `//` comments (and `///` doc comments) without moving anything, so offsets still give the
+ * right line. A `//` inside a string (a url's scheme, `postgresql://…`) is not a comment.
+ */
+const blankLineComments = (text: string) =>
+  text.replace(new RegExp(`${PRISMA_STRING}|\\/\\/[^\\n]*`, "g"), (m) => (m.startsWith("//") ? " ".repeat(m.length) : m));
+
+/**
+ * The `provider` of each `datasource` block in a Prisma schema, with its line. Only the provider is
+ * read: the `url` (a connection string or the env variable holding one) is never looked at.
+ */
+function prismaProviders(text: string): Array<{ provider: string; offset: number }> {
+  const code = blankLineComments(text);
+  const out: Array<{ provider: string; offset: number }> = [];
+  for (const block of code.matchAll(/\bdatasource\s+\w+\s*\{([^}]*)\}/g)) {
+    const body = block[1]!;
+    // `provider` anywhere in the block, even after the url on one line, but never inside a string.
+    const m = [...body.matchAll(new RegExp(`${PRISMA_STRING}|\\bprovider\\s*=\\s*"([^"\\n]*)"`, "g"))].find((x) => x[0].startsWith("provider"));
+    if (!m) continue;
+    const start = (block.index ?? 0) + block[0].indexOf(body) + (m.index ?? 0);
+    out.push({ provider: m[1]!.trim().toLowerCase(), offset: start });
+  }
+  return out;
+}
+
+const prisma: Detector = {
+  id: "data-store/prisma",
+  skipReason: (ctx) => (ctx.hasDep("@prisma/client") ? null : "no Prisma client in dependencies"),
+  run: (ctx) => {
+    const imports = ctx.js.flatMap((f) => {
+      const imp = importsModule(f, "@prisma/client");
+      return imp ? [{ file: f.file, ...(imp.line ? { line: imp.line } : {}) }] : [];
+    });
+    if (imports.length === 0) return [];
+
+    const facts: FactDraft[] = [];
+    const schemas = ctx.project.files.filter((f) => f.endsWith(".prisma") && isProductFile(f)).sort();
+    for (const file of schemas) {
+      const text = ctx.project.read(file);
+      if (text === null) continue;
+      for (const { provider, offset } of prismaProviders(text)) {
+        const known = ENGINES[provider];
+        if (!known) continue;
+        facts.push({
+          kind: "data_store",
+          subject: known.subject,
+          claim: `The app stores data in ${known.subject} through Prisma, as set by the datasource provider in its Prisma schema.`,
+          attributes: { engine: known.engine },
+          confidence: "high",
+          detector: "data-store/prisma",
+          key: file,
+          // The schema line is the source of the engine; the import only has to exist for the fact to.
+          locations: [{ file, line: ctx.project.position(file, offset).line }],
+        });
+      }
+    }
+    if (facts.length > 0) return facts;
+
+    // Prisma is imported but no schema says which engine: it is usually SQL, but MongoDB is possible.
+    return [
+      {
+        kind: "data_store",
+        subject: "SQL database (Prisma)",
+        claim: "The app uses the Prisma client, but no Prisma schema in the project says which database engine it connects to.",
+        attributes: { engine: "sql" },
+        confidence: "medium",
+        detector: "data-store/prisma",
+        key: imports[0]!.file,
+        locations: imports,
+      },
+    ];
+  },
+};
+
+/** Drizzle's schema modules name the engine: `drizzle-orm/pg-core` defines PostgreSQL tables. */
+const DRIZZLE_CORE: Record<string, string> = { "drizzle-orm/pg-core": "postgresql", "drizzle-orm/mysql-core": "mysql", "drizzle-orm/sqlite-core": "sqlite" };
+
+const drizzle: Detector = {
+  id: "data-store/drizzle",
+  skipReason: (ctx) => (ctx.hasDep("drizzle-orm") ? null : "no Drizzle ORM in dependencies"),
+  run: (ctx) =>
+    ctx.js.flatMap((f): FactDraft[] => {
+      const uses = f.imports.filter((i) => i.source === "drizzle-orm" || i.source.startsWith("drizzle-orm/"));
+      if (uses.length === 0) return [];
+      const fact = (subject: string, engine: string, claim: string, line?: number): FactDraft => ({
+        kind: "data_store",
+        subject,
+        claim,
+        attributes: { engine },
+        confidence: "high",
+        detector: "data-store/drizzle",
+        key: f.file,
+        locations: [{ file: f.file, ...(line ? { line } : {}) }],
+      });
+      const specific = uses.flatMap((i) => {
+        const known = ENGINES[DRIZZLE_CORE[i.source] ?? ""];
+        return known ? [fact(known.subject, known.engine, `The app stores data in ${known.subject} through Drizzle ORM: it imports Drizzle's ${known.subject} schema module.`, i.line)] : [];
+      });
+      // A Drizzle import that names no engine. Dropped later if any fact names a specific SQL engine.
+      return specific.length > 0
+        ? specific
+        : [fact("SQL database (Drizzle)", "sql", "The app uses Drizzle ORM, but its imports don't show which database engine it connects to.", uses[0]!.line)];
+    }),
+};
+
 /**
  * A database connection string in configuration (a compose file, settings, an env template).
  * It shows what the project is set up to use even when no client library is imported in code the
@@ -180,4 +299,4 @@ const connectionString: Detector = {
   },
 };
 
-export const storeDetectors: Detector[] = [supabase, ...STORES.map(storeDetector), connectionString];
+export const storeDetectors: Detector[] = [supabase, ...STORES.map(storeDetector), prisma, drizzle, connectionString];

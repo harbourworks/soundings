@@ -1,0 +1,110 @@
+{
+  "fixture": "hono-drizzle",
+  "project": {
+    "languages": [
+      "typescript"
+    ],
+    "frameworks": [
+      "hono"
+    ]
+  },
+  "facts": [
+    {
+      "kind": "data_store",
+      "subject": "PostgreSQL",
+      "detector": "data-store/drizzle",
+      "key": "src/db/schema.ts",
+      "files": [
+        "src/db/schema.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "secret_handling",
+      "subject": "Environment variables",
+      "detector": "secrets/env-usage",
+      "key": "env",
+      "files": [
+        "src/db/index.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "ai_provider",
+      "subject": "No AI provider found",
+      "detector": "ai-provider/none-found",
+      "key": "project",
+      "files": [
+        "package.json"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "kind": "auth",
+      "subject": "No sign-in found",
+      "detector": "auth/none-found",
+      "key": "project",
+      "files": [
+        "package.json"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "kind": "secret_handling",
+      "subject": "Hard-coded keys",
+      "detector": "secrets/hardcoded-patterns",
+      "key": "project",
+      "files": [
+        "src/db/index.ts"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "kind": "logging",
+      "subject": "Request-body logging",
+      "detector": "logging/request-body",
+      "key": "project",
+      "files": [
+        "src/server.ts"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "kind": "client_side_exposure",
+      "subject": "Browser-exposed secrets",
+      "detector": "client-exposure/public-secret-name",
+      "key": "project",
+      "files": [
+        "src/db/index.ts"
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "unknowns": [
+    "postgresql-hosting",
+    "retention-deletion"
+  ],
+  "decoys": [
+    {
+      "kind": "data_store",
+      "subject": "MySQL",
+      "file": "src/db/schema.ts",
+      "contains": "drizzle-orm/mysql-core",
+      "why": "A commented-out import of Drizzle's MySQL schema module."
+    },
+    {
+      "kind": "data_store",
+      "subject": "SQLite",
+      "file": "test/schema.test.ts",
+      "contains": "drizzle-orm/sqlite-core",
+      "why": "A .test.ts file using Drizzle's SQLite tables; the app itself never does."
+    },
+    {
+      "kind": "data_store",
+      "subject": "SQL database (Drizzle)",
+      "file": "src/db/index.ts",
+      "contains": "drizzle-orm/neon-http",
+      "why": "The driver import names no engine; once the schema module shows PostgreSQL, the generic entry is dropped."
+    }
+  ]
+}

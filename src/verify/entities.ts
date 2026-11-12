@@ -1,7 +1,7 @@
 import { AI_PROVIDERS } from "../scanner/detectors/ai.js";
 import { AUTH_PACKAGES } from "../scanner/detectors/auth.js";
 import { SERVICES } from "../scanner/detectors/services.js";
-import { STORES } from "../scanner/detectors/stores.js";
+import { ENGINES, STORES } from "../scanner/detectors/stores.js";
 
 /** Names a sentence can't mention without something backing them up. */
 const EXTRA = [
@@ -39,6 +39,8 @@ function build(): string[] {
   for (const p of AI_PROVIDERS) names.add(p.subject);
   for (const s of SERVICES) names.add(s.subject);
   for (const s of STORES) names.add(s.subject);
+  // Engines only an ORM detector names (SQLite, SQL Server, CockroachDB) are subjects too.
+  for (const e of Object.values(ENGINES)) names.add(e.subject);
   for (const a of AUTH_PACKAGES) names.add(a.subject);
   for (const e of EXTRA) names.add(e);
   for (const w of VENDOR_WORDS) names.add(w);

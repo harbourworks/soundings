@@ -281,6 +281,225 @@ describe("data stores", () => {
   });
 });
 
+describe("ORMs: Prisma and Drizzle", () => {
+  const SCHEMA = [
+    "// provider = \"mysql\" was the old setup",
+    "generator client {",
+    '  provider = "prisma-client-js"',
+    "}",
+    "",
+    "datasource db {",
+    '  provider = "postgresql" // moved from sqlite',
+    '  url      = env("DATABASE_URL")',
+    "}",
+    "",
+  ].join("\n");
+  const client = `import { PrismaClient } from "@prisma/client";\nexport const db = new PrismaClient();\n`;
+  const prisma = (files: Record<string, string>, deps: string[] = []) => ({ "package.json": pkg(["@prisma/client", ...deps]), ...files });
+  const stores = (files: Record<string, string>) => evidenceOf(files).facts.filter((f) => f.kind === "data_store");
+
+  it("reads the engine from the Prisma schema's datasource, ignoring comments and the generator", () => {
+    const [f, ...rest] = stores(prisma({ "prisma/schema.prisma": SCHEMA, "lib/db.ts": client }));
+    expect(rest).toEqual([]);
+    expect(f).toMatchObject({ subject: "PostgreSQL", detector: "data-store/prisma", confidence: "high", attributes: { engine: "postgresql" } });
+    // The schema line is what states the engine, so it is what the fact cites.
+    expect(f!.locations).toEqual([{ file: "prisma/schema.prisma", line: 7 }]);
+  });
+
+  it("maps each Prisma provider to its engine", () => {
+    const cases: Array<[string, string, string]> = [
+      ["postgresql", "PostgreSQL", "postgresql"],
+      ["postgres", "PostgreSQL", "postgresql"],
+      ["mysql", "MySQL", "mysql"],
+      ["sqlite", "SQLite", "sqlite"],
+      ["mongodb", "MongoDB", "mongodb"],
+      ["sqlserver", "SQL Server", "sqlserver"],
+      ["cockroachdb", "CockroachDB", "cockroachdb"],
+    ];
+    for (const [provider, subject, engine] of cases) {
+      const schema = `datasource   main{\n\tprovider='${provider}'\n}\n`.replace(/'/g, '"');
+      const f = stores(prisma({ "db/schema.prisma": schema, "src/db.ts": client }));
+      expect(f.map((x) => [x.subject, x.attributes.engine]), provider).toEqual([[subject, engine]]);
+    }
+  });
+
+  it("reads a schema with CRLF endings, the url first and extra datasource fields", () => {
+    const schema = [
+      "datasource db {",
+      '  url        = "postgres://app@db.internal/app" // a literal, not env()',
+      '  directUrl  = env("DIRECT_URL")',
+      '  extensions = [pgvector(map: "vector")]',
+      '  provider   = "postgresql"',
+      "}",
+      "",
+    ].join("\r\n");
+    const [f, ...rest] = stores(prisma({ "prisma/schema.prisma": schema, "src/db.ts": client }));
+    expect(rest).toEqual([]);
+    expect(f).toMatchObject({ subject: "PostgreSQL", attributes: { engine: "postgresql" } });
+    expect(f!.locations).toContainEqual({ file: "prisma/schema.prisma", line: 5 });
+    expect(JSON.stringify(f)).not.toContain("db.internal");
+    expect(JSON.stringify(f)).not.toContain("DIRECT_URL");
+  });
+
+  it("reads a one-line datasource, with the provider after a url that holds //", () => {
+    const cases: Array<[string, string]> = [
+      ['datasource db { provider = "postgresql" url = env("DATABASE_URL") }', "PostgreSQL"],
+      ['datasource db { url = "file:./dev.db" provider = "sqlite" }', "SQLite"],
+      ['datasource db { url = "mongodb+srv://cluster.example/app" provider = "mongodb" }', "MongoDB"],
+    ];
+    for (const [schema, subject] of cases) {
+      const f = stores(prisma({ "prisma/schema.prisma": `${schema}\n`, "src/db.ts": client }));
+      expect(f.map((x) => [x.subject, x.detector]), schema).toEqual([[subject, "data-store/prisma"]]);
+      expect(f[0]!.locations).toEqual([{ file: "prisma/schema.prisma", line: 1 }]);
+      expect(JSON.stringify(f)).not.toContain("cluster.example");
+    }
+  });
+
+  it("doesn't read a provider written inside a string, or after a // that ends a line", () => {
+    const inString = 'datasource db {\n  url = "x provider = \\"mysql\\""\n}\n';
+    expect(stores(prisma({ "prisma/schema.prisma": inString, "src/db.ts": client })).map((x) => x.subject)).toEqual(["SQL database (Prisma)"]);
+    const afterComment = 'datasource db {\n  url = "file:./dev.db" // provider = "sqlite"\n}\n';
+    expect(stores(prisma({ "prisma/schema.prisma": afterComment, "src/db.ts": client })).map((x) => x.subject)).toEqual(["SQL database (Prisma)"]);
+  });
+
+  it("reads a multi-file schema, wherever the datasource block is", () => {
+    const f = stores(prisma({ "prisma/schema/models.prisma": "model Note {\n  id Int @id\n}\n", "prisma/schema/base.prisma": SCHEMA, "src/db.ts": client }));
+    expect(f.map((x) => x.subject)).toEqual(["PostgreSQL"]);
+    expect(f[0]!.locations).toEqual([{ file: "prisma/schema/base.prisma", line: 7 }]);
+  });
+
+  it("never records the datasource url or the env variable it names", () => {
+    // Built from parts so the repo itself holds nothing shaped like a credentialed URL.
+    const url = ["postgresql:", "", ["app", rand(12)].join(":") + "@db.internal:5432", "notes"].join("/");
+    const literal = SCHEMA.replace('env("DATABASE_URL")', `"${url}"`);
+    for (const schema of [SCHEMA, literal]) {
+      const text = JSON.stringify(evidenceOf(prisma({ "prisma/schema.prisma": schema, "src/db.ts": client })));
+      expect(text).not.toContain(url);
+      expect(text).not.toContain("db.internal");
+      expect(text).not.toContain("DATABASE_URL");
+      expect(text).not.toContain("env(");
+    }
+  });
+
+  it("falls back to the library when no schema can be read", () => {
+    const [f, ...rest] = stores(prisma({ "src/db.ts": client }));
+    expect(rest).toEqual([]);
+    expect(f).toMatchObject({ subject: "SQL database (Prisma)", detector: "data-store/prisma", confidence: "medium", attributes: { engine: "sql" } });
+    // A schema whose provider is commented out, or names something unknown, says nothing either.
+    const commented = stores(prisma({ "prisma/schema.prisma": 'datasource db {\n  // provider = "postgresql"\n}\n', "src/db.ts": client }));
+    expect(commented.map((x) => x.subject)).toEqual(["SQL database (Prisma)"]);
+    const odd = stores(prisma({ "prisma/schema.prisma": 'datasource db {\n  provider = "somethingelse"\n}\n', "src/db.ts": client }));
+    expect(odd.map((x) => x.subject)).toEqual(["SQL database (Prisma)"]);
+  });
+
+  it("ignores Prisma named in a README, a comment, a string or a test file", () => {
+    const files = prisma({
+      "README.md": "```prisma\ndatasource db {\n  provider = \"postgresql\"\n}\n```\n",
+      "src/db.ts": `// import { PrismaClient } from "@prisma/client";\nexport const note = "@prisma/client";\n`,
+      "src/db.test.ts": client,
+      "tests/setup.ts": client,
+    });
+    expect(stores(files).filter((f) => f.claimType !== "not-found")).toEqual([]);
+    // A schema file with no client imported in product code is not a use either.
+    expect(stores({ ...files, "prisma/schema.prisma": SCHEMA }).filter((f) => f.claimType !== "not-found")).toEqual([]);
+  });
+
+  it("reports Prisma plus a pg import for the same database as one PostgreSQL store", () => {
+    const f = stores(prisma({ "prisma/schema.prisma": SCHEMA, "src/db.ts": client, "src/raw.ts": `import { Pool } from "pg";\nexport const p = Pool;\n` }, ["pg"]));
+    expect(f.map((x) => `${x.subject}|${x.detector}`)).toEqual(["PostgreSQL|data-store/postgres"]);
+    // The schema still backs the one fact, so nothing that supported it is lost.
+    expect(f[0]!.locations.map((l) => l.file)).toEqual(["prisma/schema.prisma", "src/raw.ts"]);
+    const unknowns = evidenceOf(prisma({ "prisma/schema.prisma": SCHEMA, "src/db.ts": client, "src/raw.ts": `import { Pool } from "pg";\n` }, ["pg"])).unknowns;
+    expect(unknowns.filter((u) => u.topic === "Database hosting").map((u) => u.id)).toEqual(["UQ-postgresql-hosting"]);
+  });
+
+  it("drops the Prisma fallback once a specific SQL engine is known", () => {
+    const f = stores(prisma({ "src/db.ts": client, "src/raw.ts": `import mysql from "mysql2";\nexport const m = mysql;\n` }, ["mysql2"]));
+    expect(f.map((x) => x.subject)).toEqual(["MySQL"]);
+  });
+
+  it("drops a connection string for the engine Prisma already reports, and keeps one for another store", () => {
+    const f = stores(prisma({ "prisma/schema.prisma": SCHEMA, "src/db.ts": client, "docker-compose.yml": "a: postgres://app:${PW}@db/app\nb: redis://cache:6379\n" }));
+    expect(f.map((x) => `${x.subject}|${x.detector}`).sort()).toEqual(["PostgreSQL|data-store/prisma", "Redis|data-store/connection-string"]);
+  });
+
+  it("drops the Prisma fallback when a connection string names the engine", () => {
+    const f = stores(prisma({ "src/db.ts": client, "docker-compose.yml": "a: postgresql://app:${PW}@db/app\n" }));
+    expect(f.map((x) => `${x.subject}|${x.detector}`)).toEqual(["PostgreSQL|data-store/connection-string"]);
+  });
+
+  it("asks where a Prisma store is hosted with the usual question", () => {
+    const ev = evidenceOf(prisma({ "prisma/schema.prisma": SCHEMA, "src/db.ts": client }));
+    const q = ev.unknowns.find((u) => u.id === "UQ-postgresql-hosting");
+    expect(q?.question).toBe("Where is the PostgreSQL database hosted, and by whom?");
+    expect(ev.unknowns.map((u) => u.id)).toContain("UQ-retention-deletion");
+  });
+
+  const drizzle = (files: Record<string, string>, deps: string[] = []) => ({ "package.json": pkg(["drizzle-orm", ...deps]), ...files });
+
+  it("reads the engine from Drizzle's schema module", () => {
+    const cases: Array<[string, string, string]> = [
+      ["pg-core", "PostgreSQL", "postgresql"],
+      ["mysql-core", "MySQL", "mysql"],
+      ["sqlite-core", "SQLite", "sqlite"],
+    ];
+    for (const [sub, subject, engine] of cases) {
+      const f = stores(drizzle({ "db/schema.ts": `import { integer } from "drizzle-orm/${sub}";\nexport const id = integer;\n` }));
+      expect(f.map((x) => [x.subject, x.detector, x.attributes.engine, x.confidence, x.locations[0]]), sub).toEqual([
+        [subject, "data-store/drizzle", engine, "high", { file: "db/schema.ts", line: 1 }],
+      ]);
+    }
+  });
+
+  it("falls back to Drizzle when no schema module names the engine, and drops the fallback when one does", () => {
+    const db = `import { drizzle } from "drizzle-orm/neon-http";\nimport { eq } from "drizzle-orm";\nexport const x = [drizzle, eq];\n`;
+    const only = stores(drizzle({ "db/index.ts": db }));
+    expect(only.map((x) => [x.subject, x.attributes.engine, x.confidence])).toEqual([["SQL database (Drizzle)", "sql", "high"]]);
+    const both = stores(drizzle({ "db/index.ts": db, "db/schema.ts": `const { pgTable } = require("drizzle-orm/pg-core");\nmodule.exports = pgTable;\n` }));
+    expect(both.map((x) => x.subject)).toEqual(["PostgreSQL"]);
+  });
+
+  it("ignores Drizzle named in a comment, a string or a test file", () => {
+    const f = stores(
+      drizzle({
+        "db/schema.ts": `// import { pgTable } from "drizzle-orm/pg-core";\nexport const s = "drizzle-orm/mysql-core";\n`,
+        "db/schema.test.ts": `import { sqliteTable } from "drizzle-orm/sqlite-core";\nexport const t = sqliteTable;\n`,
+      }),
+    );
+    expect(f.filter((x) => x.claimType !== "not-found")).toEqual([]);
+  });
+
+  it("reports Drizzle on pg-core with a postgres driver as one PostgreSQL store", () => {
+    const f = stores(
+      drizzle(
+        {
+          "db/schema.ts": `import { pgTable } from "drizzle-orm/pg-core";\nexport const t = pgTable;\n`,
+          "db/index.ts": `import { drizzle } from "drizzle-orm/postgres-js";\nimport postgres from "postgres";\nexport const db = drizzle(postgres());\n`,
+        },
+        ["postgres"],
+      ),
+    );
+    expect(f.map((x) => `${x.subject}|${x.detector}`)).toEqual(["PostgreSQL|data-store/postgres"]);
+  });
+
+  it("reports Prisma and Drizzle on the same engine as one store, and different engines separately", () => {
+    const same = stores({
+      "package.json": pkg(["@prisma/client", "drizzle-orm"]),
+      "prisma/schema.prisma": SCHEMA,
+      "src/db.ts": client,
+      "src/schema.ts": `import { pgTable } from "drizzle-orm/pg-core";\nexport const t = pgTable;\n`,
+    });
+    expect(same.map((x) => `${x.subject}|${x.detector}`)).toEqual(["PostgreSQL|data-store/prisma"]);
+    const different = stores({
+      "package.json": pkg(["@prisma/client", "drizzle-orm"]),
+      "prisma/schema.prisma": SCHEMA,
+      "src/db.ts": client,
+      "src/cache.ts": `import { sqliteTable } from "drizzle-orm/sqlite-core";\nexport const t = sqliteTable;\n`,
+    });
+    expect(different.map((x) => x.subject).sort()).toEqual(["PostgreSQL", "SQLite"]);
+  });
+});
+
 describe("secret handling", () => {
   it("records secret-named environment variables by name only", () => {
     const e = evidenceOf({ "package.json": pkg(), "a.ts": `export const k = process.env.STRIPE_SECRET_KEY;\nexport const d = process.env.DATABASE_URL;\n` });
