@@ -1,0 +1,82 @@
+{
+  "fixture": "sqlalchemy-postgres",
+  "project": {
+    "languages": ["python"],
+    "frameworks": []
+  },
+  "facts": [
+    {
+      "kind": "data_store",
+      "subject": "SQL database (SQLAlchemy)",
+      "detector": "data-store/sqlalchemy",
+      "key": "app/db.py",
+      "files": ["app/db.py"],
+      "confidence": "high"
+    },
+    {
+      "kind": "data_store",
+      "subject": "PostgreSQL",
+      "detector": "data-store/connection-string",
+      "key": "app/db.py",
+      "files": ["app/db.py"],
+      "confidence": "medium"
+    },
+    {
+      "kind": "ai_provider",
+      "subject": "No AI provider found",
+      "detector": "ai-provider/none-found",
+      "key": "project",
+      "files": ["app/db.py"],
+      "confidence": "medium"
+    },
+    {
+      "kind": "auth",
+      "subject": "No sign-in found",
+      "detector": "auth/none-found",
+      "key": "project",
+      "files": ["app/db.py"],
+      "confidence": "medium"
+    },
+    {
+      "kind": "client_side_exposure",
+      "subject": "Browser-exposed secrets",
+      "detector": "client-exposure/public-secret-name",
+      "key": "project",
+      "files": ["app/db.py"],
+      "confidence": "medium"
+    },
+    {
+      "kind": "logging",
+      "subject": "Request-body logging",
+      "detector": "logging/request-body",
+      "key": "project",
+      "files": ["app/db.py"],
+      "confidence": "medium"
+    },
+    {
+      "kind": "secret_handling",
+      "subject": "Hard-coded keys",
+      "detector": "secrets/hardcoded-patterns",
+      "key": "project",
+      "files": ["app/db.py"],
+      "confidence": "medium"
+    }
+  ],
+  "unknowns": ["postgresql-hosting", "retention-deletion", "sql-database-hosting"],
+  "decoys": [
+    {
+      "kind": "data_store",
+      "subject": "MongoDB",
+      "file": "app/notes.py",
+      "contains": "mongodb://unused@db/notes",
+      "why": "The URL appears only in a Python docstring, not in application configuration or an active string literal."
+    },
+    {
+      "kind": "data_store",
+      "subject": "MySQL",
+      "file": "app/notes.py",
+      "contains": "mysql://unused@db/notes",
+      "why": "The URL appears only in a Python comment."
+    }
+  ]
+}
