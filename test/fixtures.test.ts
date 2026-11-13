@@ -36,7 +36,7 @@ function perfectScan(key: AnswerKey) {
 }
 
 it("has the planned fixtures", () => {
-  expect([...keyFiles].sort()).toEqual(["express-pg.json", "fastapi-rag.json", "hono-drizzle.json", "next-prisma.json", "notes-saas.json", "static-site.json"]);
+  expect([...keyFiles].sort()).toEqual(["express-pg.json", "fastapi-rag.json", "hono-drizzle.json", "next-prisma.json", "notes-saas.json", "sqlalchemy-postgres.json", "static-site.json"]);
 });
 
 describe.each(keyFiles)("answer key %s", (file) => {

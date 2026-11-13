@@ -75,10 +75,10 @@ Detectors added for Python and the Azure stack:
 | --- | --- | --- |
 | `auth/entra` | MSAL imports (Python and JavaScript) | Doesn't see tenant or conditional-access settings |
 | `auth/fastapi-security`, `auth/django-auth`, `auth/flask-login`, `auth/authlib` | Imports of the framework's authentication helpers | Doesn't judge how they are configured |
-| `data-store/mysql`, `data-store/sqlalchemy`, `data-store/cosmos` | Client imports. SQLAlchemy is dropped when a specific SQL engine is found | Doesn't know the host |
+| `data-store/mysql`, `data-store/sqlalchemy`, `data-store/cosmos` | Client imports. A generic SQL fact is dropped when a specific engine fact is at least as confident; a medium-confidence connection string does not replace high-confidence SQLAlchemy evidence | Doesn't know the host |
 | `data-store/azure-blob`, `data-store/azure-search` | Azure storage and search client imports | Doesn't know the region or account settings |
 | `data-store/chroma`, `data-store/qdrant`, `data-store/pinecone` | Vector database client imports | Same |
-| `data-store/connection-string` | Database URLs in configuration files (compose, settings, env templates), at **medium** confidence. Dropped when a client import already shows the same store | A URL in config shows what the project is set up to use, not that it runs |
+| `data-store/connection-string` | Database URLs in configuration files (compose, settings, env templates) and Python string literals, at **medium** confidence. Python comments and docstrings are ignored. A URL in application code is described as code. Dropped when a client import already shows the same store | A URL in config or code shows what the project is set up to use, not that it runs |
 
 ## Code the scan can't read
 

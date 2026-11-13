@@ -126,4 +126,18 @@ describe("python detectors", () => {
     const both = evidenceOf({ "docker-compose.yml": "x: postgresql://app:${PW}@db/app\n", "a.py": "import asyncpg\n" });
     expect(both.facts.filter((f) => f.subject === "PostgreSQL").map((f) => f.detector)).toEqual(["data-store/postgres"]);
   });
+
+  it("keeps SQLAlchemy evidence alongside a medium-confidence code URL and ignores Python decoys", () => {
+    const e = evidenceOf({
+      "app/db.py": 'from sqlalchemy import create_engine\nengine = create_engine("postgresql+psycopg://app@db:5432/app")\n',
+      "app/notes.py": '"""mongodb://unused@db/notes"""\n# mysql://unused@db/notes\n',
+    });
+    const stores = e.facts.filter((f) => f.kind === "data_store").map((f) => [f.subject, f.detector, f.confidence]);
+    expect(stores).toHaveLength(2);
+    expect(stores).toEqual(expect.arrayContaining([
+      ["SQL database (SQLAlchemy)", "data-store/sqlalchemy", "high"],
+      ["PostgreSQL", "data-store/connection-string", "medium"],
+    ]));
+    expect(e.facts.find((f) => f.detector === "data-store/connection-string")?.claim).toContain("application code");
+  });
 });
