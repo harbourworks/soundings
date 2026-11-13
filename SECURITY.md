@@ -2,7 +2,7 @@
 
 ## Reporting a problem in Soundings itself
 
-Email **support@dynamomaritime.com** with "Security" in the subject. Please include the version (`npx soundings-cli --version`), what you found, and how to reproduce it. A small, made-up example is ideal; please don't send real secrets or code you can't share.
+Email **support@dynamomaritime.com** with "Security" in the subject. Please include the version (`npx @dynamomaritime/soundings-cli --version`), what you found, and how to reproduce it. A small, made-up example is ideal; please don't send real secrets or code you can't share.
 
 We'll acknowledge it within two working days and keep you updated until it's fixed. Please give us a reasonable chance to release a fix before you publish details. We're happy to credit you in the release notes.
 

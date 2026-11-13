@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to soundings-cli. Versions follow [semantic versioning](https://semver.org); while it's 0.x, a minor version can change behaviour.
+All notable changes to @dynamomaritime/soundings-cli (published as soundings-cli up to 0.1.0). Versions follow [semantic versioning](https://semver.org); while it's 0.x, a minor version can change behaviour.
 
 ## 0.1.0 (11 November 2026)
 

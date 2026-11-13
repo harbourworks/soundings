@@ -37,8 +37,8 @@ jobs:
       - name: Publish
         run: |
           version="$(node -p "require('./package.json').version")"
-          if npm view "soundings-cli@$version" version >/dev/null 2>&1; then
-            echo "soundings-cli@$version is already on npm; nothing to publish."
+          if npm view "@dynamomaritime/soundings-cli@$version" version >/dev/null 2>&1; then
+            echo "@dynamomaritime/soundings-cli@$version is already on npm; nothing to publish."
           else
             npm publish --provenance --access public
           fi

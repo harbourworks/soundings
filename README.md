@@ -4,7 +4,7 @@
 
 Soundings scans a project on your own machine and records what it finds: which AI providers it calls, where data is stored and sent, how users sign in, how keys are handled. Answers to a client's security questionnaire are then built from those findings, and anything the code can't tell it becomes a question for you. Your code never leaves your machine.
 
-Status: 0.1.0. Scanning, questions, answers, questionnaire import, verification, licensing, the five documents and the exports work. Available on npm as `soundings-cli`.
+Status: 0.1.0. Scanning, questions, answers, questionnaire import, verification, licensing, the five documents and the exports work. Available on npm as `@dynamomaritime/soundings-cli`.
 
 ```
 soundings scan .                         # what does the code show?
