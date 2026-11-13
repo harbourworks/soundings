@@ -91,6 +91,18 @@ describe("the documents", () => {
     expect(rows.find((r) => r.startsWith("| Stripe"))).toContain("Not yet provided");
   });
 
+  it("leaves a low-confidence prompt flow out of the subprocessor table", () => {
+    const ev = evidence("mixed-ai");
+    const low = ev.facts.filter((f) => f.kind === "data_flow" && f.confidence === "low");
+    expect(low.map((f) => f.subject).sort()).toEqual(["Groq", "OpenAI"]);
+    const md = buildDocument("subprocessors", ev, emptyAnswers(), { locations: false }).markdown;
+    for (const f of low) expect(md).not.toContain(f.id);
+    const groq = md.split("\n").find((l) => l.startsWith("| Groq"));
+    expect(groq?.split(" | ")[2]).toBe("Not yet provided");
+    expect(md.split("\n").find((l) => l.startsWith("| OpenAI"))).toContain("user-supplied content");
+    expect(verifyText(md, ev, emptyAnswers()).issues.filter((i) => i.code === "low-confidence-fact")).toEqual([]);
+  });
+
   it("says plainly that no AI is used, from the 'not found' fact, rather than describing a provider", () => {
     const md = buildDocument("ai-use", evidence("static-site"), emptyAnswers(), { locations: false }).markdown;
     expect(md).toMatch(/No AI provider SDK from the supported list was found/);

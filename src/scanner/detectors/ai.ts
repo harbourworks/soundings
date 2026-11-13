@@ -1,10 +1,10 @@
 import type { FactDraft } from "../../evidence/build.js";
 import { walkAst } from "../../core/js.js";
 import type { Node } from "@babel/types";
-import { calls, chainOf, dynamicRoots, endsWith, firstStringProperty, lineOf, paramNames, requestVariables } from "../ast.js";
+import { boundNames, calls, chainOf, dynamicRoots, endsWith, firstStringProperty, lineOf, paramNames, requestVariables } from "../ast.js";
 import { importsModule, importsPy } from "../context.js";
-import { aiPayload, firstStringKwarg } from "../python/parse.js";
-import type { Detector, JsFile, ScanContext } from "../types.js";
+import { aiSends, assignments, callEndsWith, firstStringKwarg, importBindings, withinModule } from "../python/parse.js";
+import type { Detector, JsFile, PyFile, ScanContext } from "../types.js";
 
 interface ProviderSpec {
   id: string;
@@ -121,38 +121,131 @@ const AI_CALL_TAILS: string[][] = [
 const AI_CALL_FUNCTIONS = new Set(["generateText", "streamText", "generateObject", "streamObject", "embed", "embedMany"]);
 const CONTENT_KEYS = new Set(["content", "prompt", "input", "contents", "text", "system", "messages"]);
 
-/**
- * Finds model calls whose prompt content comes from somewhere other than a fixed string.
- * "high" when that content traces to a request or a function parameter (a caller supplies it),
- * "medium" when it is dynamic but its source isn't clear.
- */
-function payloadIn(f: JsFile, providers: ProviderSpec[]): { confidence: "high" | "medium"; line?: number } | null {
-  const requestVars = requestVariables(f.ast);
-  const params = paramNames(f.ast);
-  const ownTails = providers.flatMap((p) => p.calls?.js ?? []);
-  const commands = new Set(providers.flatMap((p) => p.commands ?? []));
-  let best: { confidence: "high" | "medium"; line?: number } | null = null;
+/** A model call whose prompt is not a fixed string, and the providers it may go to: one when the scan can tell. */
+interface Send {
+  /** High when the prompt traces to a request or a function parameter (a caller supplies it), medium when it is dynamic but unclear. */
+  source: "high" | "medium";
+  line?: number;
+  providers: ProviderSpec[];
+}
 
-  const sends: Array<{ args: Node[]; line?: number }> = [];
-  for (const call of calls(f.ast)) {
-    const isAiCall =
-      (call.chain !== null && AI_CALL_TAILS.some((t) => endsWith(call.chain, t))) ||
-      (call.chain !== null && call.chain.length === 1 && AI_CALL_FUNCTIONS.has(call.chain[0]!)) ||
-      (call.chain !== null && ownTails.some((t) => call.chain!.length > t.length && endsWith(call.chain, t)));
-    if (isAiCall && call.node.type === "CallExpression") sends.push({ args: call.node.arguments, ...(call.line ? { line: call.line } : {}) });
-  }
-  if (commands.size > 0) {
+/** Root of the value a name is bound to: `new OpenAI()` and `openai("gpt-4o")` give their callee, `a.b` gives itself. */
+function valueChain(n: Node | null | undefined): string[] | null {
+  if (!n) return null;
+  if (n.type === "AwaitExpression") return valueChain(n.argument);
+  if (n.type === "TSAsExpression" || n.type === "TSSatisfiesExpression" || n.type === "TSNonNullExpression" || n.type === "ParenthesizedExpression") return valueChain(n.expression);
+  if (n.type === "NewExpression") return chainOf(n.callee);
+  return chainOf(n);
+}
+
+/** The module a `require("x")` or `import("x")` call loads. */
+function loaded(n: Node | null | undefined): string | null {
+  if (n?.type === "AwaitExpression") return loaded(n.argument);
+  if (n?.type !== "CallExpression") return null;
+  const [arg] = n.arguments;
+  const isLoad = (n.callee.type === "Identifier" && n.callee.name === "require") || n.callee.type === "Import";
+  return isLoad && arg?.type === "StringLiteral" ? arg.value : null;
+}
+
+const ownsPackage = (p: ProviderSpec, source: string) => p.packages.some((pkg) => source === pkg || source.startsWith(`${pkg}/`));
+
+/**
+ * Which provider each name in the file stands for: names imported from a provider's package, and
+ * clients made from them (`const o = new OpenAI()`, `this.claude = new Anthropic()`, `const fast = anthropic("…")`).
+ * A name given clients of two different providers anywhere in the file stands for neither.
+ */
+function jsBindings(f: JsFile): (chain: string[] | null) => ProviderSpec | undefined {
+  const bound = new Map<string, ProviderSpec | null>();
+  const resolve = (chain: string[] | null) => {
+    if (!chain) return undefined;
+    for (let n = chain.length; n > 0; n--) {
+      const p = bound.get(chain.slice(0, n).join("."));
+      if (p !== undefined) return p ?? undefined;
+    }
+    return undefined;
+  };
+  const bind = (names: string[], p: ProviderSpec | undefined) => {
+    if (p) for (const name of names) bound.set(name, bound.has(name) && bound.get(name) !== p ? null : p);
+  };
+  walkAst(f.ast, (n) => {
+    if (n.type === "ImportDeclaration") bind(n.specifiers.map((s) => s.local.name), AI_PROVIDERS.find((p) => ownsPackage(p, n.source.value)));
+    if (n.type === "VariableDeclarator") {
+      const source = loaded(n.init);
+      if (source) bind(boundNames(n.id), AI_PROVIDERS.find((p) => ownsPackage(p, source)));
+    }
+    return undefined;
+  });
+  // Clients, in two passes so that a client made from another client (`const c = o`) is followed.
+  for (let pass = 0; pass < 2; pass++) {
     walkAst(f.ast, (n) => {
-      if (n.type !== "NewExpression") return undefined;
-      const chain = chainOf(n.callee);
-      const line = lineOf(n);
-      if (chain && commands.has(chain[chain.length - 1]!)) sends.push({ args: n.arguments, ...(line ? { line } : {}) });
+      if (n.type === "VariableDeclarator" && n.id.type === "Identifier") bind([n.id.name], resolve(valueChain(n.init)));
+      if (n.type === "AssignmentExpression" && n.operator === "=") {
+        const target = chainOf(n.left);
+        if (target) bind([target.join(".")], resolve(valueChain(n.right)));
+      }
+      if ((n.type === "ClassProperty" || n.type === "ClassPrivateProperty") && n.key.type === "Identifier") bind([`this.${n.key.name}`], resolve(valueChain(n.value)));
       return undefined;
     });
   }
+  return resolve;
+}
 
-  sends.sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
+/** The value of property `name` in the first argument, if it is an object literal. */
+function argProperty(args: Node[], name: string): Node | undefined {
+  const [first] = args;
+  if (first?.type !== "ObjectExpression") return undefined;
+  for (const p of first.properties) {
+    if (p.type === "ObjectProperty" && !p.computed && ((p.key.type === "Identifier" && p.key.name === name) || (p.key.type === "StringLiteral" && p.key.value === name))) return p.value as Node;
+  }
+  return undefined;
+}
+
+/**
+ * The provider a call goes to. A call through a client made from one provider's import goes to that
+ * provider; an AI SDK call (`generateText`) goes to the provider of its `model`. When that can't be
+ * read, a file with one possible provider sends to it, and a file with several gives them all, unresolved.
+ * `owners` limits a provider-specific call shape (Cohere's `chat`) to the providers that have it.
+ */
+function destination(resolved: ProviderSpec | undefined, candidates: ProviderSpec[], owners?: ProviderSpec[]): ProviderSpec[] {
+  const possible = owners ? candidates.filter((p) => owners.includes(p)) : candidates;
+  if (resolved && candidates.includes(resolved)) return possible.includes(resolved) ? [resolved] : [];
+  return possible;
+}
+
+/** Model calls whose prompt content comes from somewhere other than a fixed string, each with where it goes. */
+function sendsIn(f: JsFile, providers: ProviderSpec[]): Send[] {
+  const requestVars = requestVariables(f.ast);
+  const params = paramNames(f.ast);
+  const resolve = jsBindings(f);
+  const owning = (match: (p: ProviderSpec) => boolean) => providers.filter(match);
+
+  const sends: Array<{ args: Node[]; line?: number; to: ProviderSpec[] }> = [];
+  for (const call of calls(f.ast)) {
+    if (call.chain === null || call.node.type !== "CallExpression") continue;
+    const chain = call.chain;
+    const line = call.line !== undefined ? { line: call.line } : {};
+    if (chain.length === 1 && AI_CALL_FUNCTIONS.has(chain[0]!)) {
+      const model = resolve(valueChain(argProperty(call.node.arguments, "model")));
+      sends.push({ args: call.node.arguments, ...line, to: destination(model, providers) });
+    } else if (AI_CALL_TAILS.some((t) => endsWith(chain, t))) {
+      sends.push({ args: call.node.arguments, ...line, to: destination(resolve(chain), providers) });
+    } else {
+      const owners = owning((p) => (p.calls?.js ?? []).some((t) => chain.length > t.length && endsWith(chain, t)));
+      if (owners.length > 0) sends.push({ args: call.node.arguments, ...line, to: destination(resolve(chain), providers, owners) });
+    }
+  }
+  walkAst(f.ast, (n) => {
+    if (n.type !== "NewExpression") return undefined;
+    const chain = chainOf(n.callee);
+    const owners = chain ? owning((p) => (p.commands ?? []).includes(chain[chain.length - 1]!)) : [];
+    const line = lineOf(n);
+    if (owners.length > 0) sends.push({ args: n.arguments, ...(line ? { line } : {}), to: destination(resolve(chain), providers, owners) });
+    return undefined;
+  });
+
+  const out: Send[] = [];
   for (const call of sends) {
+    if (call.to.length === 0) continue;
     const roots = new Set<string>();
     for (const arg of call.args) {
       walkAst(arg, (n) => {
@@ -163,13 +256,80 @@ function payloadIn(f: JsFile, providers: ProviderSpec[]): { confidence: "high" |
         return undefined;
       });
     }
+    if (roots.size === 0) continue;
     // `role` and `model` identifiers aren't content; only roots that carry data matter.
     const traced = [...roots].some((r) => requestVars.has(r) || params.has(r) || r === "req" || r === "request");
-    if (roots.size === 0) continue;
-    const candidate = { confidence: traced ? ("high" as const) : ("medium" as const), ...(call.line ? { line: call.line } : {}) };
-    if (!best || (candidate.confidence === "high" && best.confidence !== "high")) best = candidate;
+    out.push({ source: traced ? "high" : "medium", ...(call.line ? { line: call.line } : {}), providers: call.to });
   }
-  return best;
+  return out;
+}
+
+/** Which provider each dotted name in a Python file stands for: imported names and the clients made from them. A name given two providers' clients stands for neither. */
+function pyBindings(f: PyFile): (chain: string[]) => ProviderSpec | undefined {
+  const modules = importBindings(f.lines);
+  const clients = new Map<string, ProviderSpec | null>();
+  const resolve = (chain: string[]) => {
+    for (let n = chain.length; n > 0; n--) {
+      const p = clients.get(chain.slice(0, n).join("."));
+      if (p !== undefined) return p ?? undefined;
+    }
+    const base = modules.get(chain[0]!);
+    if (base === undefined) return undefined;
+    const full = [base, ...chain.slice(1)].join(".");
+    return AI_PROVIDERS.find((p) => p.pyModules.some((m) => withinModule(full, m)));
+  };
+  for (let pass = 0; pass < 2; pass++) {
+    for (const a of assignments(f.lines)) {
+      const p = resolve(a.value);
+      if (p) clients.set(a.target, clients.has(a.target) && clients.get(a.target) !== p ? null : p);
+    }
+  }
+  return resolve;
+}
+
+function pySendsIn(f: PyFile, providers: ProviderSpec[]): Send[] {
+  const resolve = pyBindings(f);
+  return aiSends(f.lines, f.calls, f.funcs, providers.flatMap((p) => p.calls?.py ?? [])).map((s) => {
+    const owners = s.ownTail ? providers.filter((p) => (p.calls?.py ?? []).some((t) => s.chain.length > t.length && callEndsWith(s.chain, t))) : undefined;
+    return { source: s.confidence, line: s.line, providers: destination(resolve(s.chain), providers, owners) };
+  });
+}
+
+/**
+ * One flow fact per provider per file, at the best call that goes to it. A call tied to one provider
+ * is reported at the confidence its source gives. A call that could go to several is reported for each
+ * at low confidence, with the other possibilities, so the user is asked rather than told.
+ */
+function flowFacts(file: string, sends: Send[]): FactDraft[] {
+  const rank = (s: Send) => (s.providers.length === 1 ? 2 : 0) + (s.source === "high" ? 1 : 0);
+  const best = new Map<ProviderSpec, Send>();
+  for (const s of [...sends].sort((a, b) => (a.line ?? 0) - (b.line ?? 0))) {
+    for (const p of s.providers) {
+      const prev = best.get(p);
+      if (!prev || rank(s) > rank(prev)) best.set(p, s);
+    }
+  }
+  return [...best].map(([p, s]): FactDraft => {
+    const unclear = s.providers.length > 1;
+    return {
+      kind: "data_flow",
+      subject: p.subject,
+      claim:
+        s.source === "high"
+          ? `Text taken from a request or function input is included in prompts sent to ${p.subject}.`
+          : `Variable content is included in prompts sent to ${p.subject}; its source isn't clear from the code.`,
+      attributes: {
+        dataCategories: ["user-supplied content"],
+        destination: p.subject,
+        direction: "outbound",
+        ...(unclear ? { possibleDestinations: s.providers.map((x) => x.subject).sort() } : {}),
+      },
+      confidence: unclear ? "low" : s.source,
+      detector: "data-flow/ai-request-payload",
+      key: file,
+      locations: [{ file, ...(s.line ? { line: s.line } : {}) }],
+    };
+  });
 }
 
 const dataFlowDetector: Detector = {
@@ -179,45 +339,11 @@ const dataFlowDetector: Detector = {
     const facts: FactDraft[] = [];
     for (const f of ctx.py) {
       const providers = AI_PROVIDERS.filter((p) => p.pyModules.length > 0 && importsPy(f, ...p.pyModules));
-      if (providers.length === 0) continue;
-      const payload = aiPayload(f.lines, f.calls, f.funcs, providers.flatMap((p) => p.calls?.py ?? []));
-      if (!payload) continue;
-      for (const p of providers) {
-        facts.push({
-          kind: "data_flow",
-          subject: p.subject,
-          claim:
-            payload.confidence === "high"
-              ? `Text taken from a request or function input is included in prompts sent to ${p.subject}.`
-              : `Variable content is included in prompts sent to ${p.subject}; its source isn't clear from the code.`,
-          attributes: { dataCategories: ["user-supplied content"], destination: p.subject, direction: "outbound" },
-          confidence: payload.confidence,
-          detector: "data-flow/ai-request-payload",
-          key: f.file,
-          locations: [{ file: f.file, line: payload.line }],
-        });
-      }
+      if (providers.length > 0) facts.push(...flowFacts(f.file, pySendsIn(f, providers)));
     }
     for (const f of ctx.js) {
       const providers = providersIn(f);
-      if (providers.length === 0) continue;
-      const payload = payloadIn(f, providers);
-      if (!payload) continue;
-      for (const p of providers) {
-        facts.push({
-          kind: "data_flow",
-          subject: p.subject,
-          claim:
-            payload.confidence === "high"
-              ? `Text taken from a request or function input is included in prompts sent to ${p.subject}.`
-              : `Variable content is included in prompts sent to ${p.subject}; its source isn't clear from the code.`,
-          attributes: { dataCategories: ["user-supplied content"], destination: p.subject, direction: "outbound" },
-          confidence: payload.confidence,
-          detector: "data-flow/ai-request-payload",
-          key: f.file,
-          locations: [{ file: f.file, ...(payload.line ? { line: payload.line } : {}) }],
-        });
-      }
+      if (providers.length > 0) facts.push(...flowFacts(f.file, sendsIn(f, providers)));
     }
     return facts;
   },

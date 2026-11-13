@@ -191,6 +191,80 @@ describe("data flow to AI providers", () => {
   });
 });
 
+describe("which provider a prompt is sent to", () => {
+  const scanOf = (deps: string[], code: string) => evidenceOf({ "package.json": pkg(deps), "src/both.ts": code });
+  const flowsOf = (deps: string[], code: string) =>
+    scanOf(deps, code)
+      .facts.filter((f) => f.kind === "data_flow")
+      .map((f) => `${f.subject}|${f.confidence}|${f.locations?.[0]?.line}`)
+      .sort();
+  const both = ["openai", "@anthropic-ai/sdk"];
+  const head = `import OpenAI from "openai";\nimport Anthropic from "@anthropic-ai/sdk";\nconst o = new OpenAI();\nconst a = new Anthropic();\n`;
+  const toAnthropic = (content: string) => `  return a.messages.create({ model: "m", max_tokens: 8, messages: [{ role: "user", content: ${content} }] });\n`;
+  const toOpenAI = (content: string) => `  return o.chat.completions.create({ model: "m", messages: [{ role: "user", content: ${content} }] });\n`;
+
+  it("credits a flow only to the provider whose client makes the call, at that call's line", () => {
+    const code = `${head}export function health() {\n${toAnthropic(`"fixed health check"`)}}\nexport function ask(question: string) {\n${toOpenAI("question")}}\n`;
+    expect(flowsOf(both, code)).toEqual(["OpenAI|high|9"]);
+  });
+
+  it("does the same the other way round, and for two dynamic calls gives each provider its own line", () => {
+    const swapped = `${head}export function ask(question: string) {\n${toAnthropic("question")}}\nexport function health() {\n${toOpenAI(`"fixed health check"`)}}\n`;
+    expect(flowsOf(both, swapped)).toEqual(["Anthropic|high|6"]);
+    const two = `${head}import { load } from "./x";\nexport function ask(question: string) {\n${toAnthropic("question")}}\nexport function digest() {\n${toOpenAI("load()")}}\n`;
+    expect(flowsOf(both, two)).toEqual(["Anthropic|high|7", "OpenAI|medium|10"]);
+  });
+
+  it("follows the client through require, a class field and this.client", () => {
+    const req = `const OpenAI = require("openai");\nconst { Anthropic } = require("@anthropic-ai/sdk");\nconst o = new OpenAI();\nconst a = new Anthropic();\nexport function health() {\n${toAnthropic(`"ok"`)}}\nexport function ask(q: string) {\n${toOpenAI("q")}}\n`;
+    expect(flowsOf(both, req)).toEqual(["OpenAI|high|9"]);
+    const cls = `import OpenAI from "openai";\nimport Anthropic from "@anthropic-ai/sdk";\nexport class Bot {\n  private gpt = new OpenAI();\n  claude: Anthropic;\n  constructor() { this.claude = new Anthropic(); }\n  ask(q: string) {\n    return this.claude.messages.create({ model: "m", max_tokens: 8, messages: [{ role: "user", content: q }] });\n  }\n  ping() {\n    return this.gpt.responses.create({ model: "m", input: "ping" });\n  }\n}\n`;
+    expect(flowsOf(both, cls)).toEqual(["Anthropic|high|8"]);
+    const cast = `${head}const c = new Anthropic() as Anthropic;\nexport function ask(q: string) {\n  return c.messages.create({ model: "m", max_tokens: 8, messages: [{ role: "user", content: q }] });\n}\n`;
+    expect(flowsOf(both, cast)).toEqual(["Anthropic|high|7"]);
+    const ns = `import * as oa from "openai";\nimport Anthropic from "@anthropic-ai/sdk";\nconst o = new oa.OpenAI();\nexport const a = new Anthropic();\nexport function ask(q: string) {\n${toOpenAI("q")}}\n`;
+    expect(flowsOf(both, ns)).toEqual(["OpenAI|high|6"]);
+  });
+
+  it("treats a name given two providers' clients as unclear, not as the first one", () => {
+    const code = `${head}let c: any = new OpenAI();\nif (process.env.USE_A) c = new Anthropic();\nexport function ask(q: string) {\n  return c.messages.create({ model: "m", max_tokens: 8, messages: [{ role: "user", content: q }] });\n}\n`;
+    expect(flowsOf(both, code)).toEqual(["Anthropic|low|8", "OpenAI|low|8"]);
+  });
+
+  it("reads the provider from the model passed to a Vercel AI SDK call", () => {
+    const code = `import { generateText } from "ai";\nimport { openai } from "@ai-sdk/openai";\nimport { anthropic } from "@ai-sdk/anthropic";\nconst fast = anthropic("claude-haiku-5-5");\nexport function health() {\n  return generateText({ model: fast, prompt: "fixed health check" });\n}\nexport function ask(question: string) {\n  return generateText({ model: openai("gpt-4o"), prompt: question });\n}\nexport function label(ticket: string) {\n  return generateText({ model: fast, prompt: ticket });\n}\n`;
+    expect(flowsOf(["ai", "@ai-sdk/openai", "@ai-sdk/anthropic"], code)).toEqual(["Anthropic|high|12", "OpenAI|high|9"]);
+  });
+
+  it("gives a call it can't tie to one provider low confidence for each, and asks which one it is", () => {
+    const code = `${head}const client = process.env.USE_A === "1" ? a : o;\nexport function ask(question: string) {\n${toOpenAI("question").replace("o.chat", "client.chat")}}\n`;
+    const e = scanOf(both, code);
+    const flows = e.facts.filter((f) => f.kind === "data_flow");
+    expect(flows.map((f) => `${f.subject}|${f.confidence}|${f.locations?.[0]?.line}`).sort()).toEqual(["Anthropic|low|7", "OpenAI|low|7"]);
+    expect(flows.every((f) => f.claim.startsWith("Text taken from a request or function input is included in prompts sent to"))).toBe(true);
+    const q = e.unknowns.find((u) => u.id === "UQ-ai-destination-src-both-ts");
+    expect(q?.question).toBe("Which AI provider receives the prompt sent from src/both.ts (line 7): Anthropic or OpenAI?");
+    expect(q?.relatedFacts.sort()).toEqual(expect.arrayContaining(flows.map((f) => f.id)));
+  });
+
+  it("keeps a traced call's confidence when another call in the file is unclear", () => {
+    const code = `${head}import { pick } from "./x";\nexport function ask(question: string) {\n${toOpenAI("question")}}\nexport function other(note: string) {\n  return pick().messages.create({ messages: [{ role: "user", content: note }] });\n}\n`;
+    const e = scanOf(both, code);
+    expect(e.facts.filter((f) => f.kind === "data_flow").map((f) => `${f.subject}|${f.confidence}|${f.locations?.[0]?.line}`).sort()).toEqual(["Anthropic|low|10", "OpenAI|high|7"]);
+  });
+
+  it("still credits a single-provider file's flow when the client comes from elsewhere", () => {
+    const code = `import OpenAI from "openai";\nimport { client } from "./client";\nexport const c = new OpenAI();\nexport function ask(question: string) {\n  return client.chat.completions.create({ messages: [{ role: "user", content: question }] });\n}\n`;
+    expect(flowsOf(["openai"], code)).toEqual(["OpenAI|high|5"]);
+    expect(scanOf(["openai"], code).unknowns.some((u) => u.id.startsWith("UQ-ai-destination"))).toBe(false);
+  });
+
+  it("does not read another provider's client as Cohere's chat, in a file that imports both", () => {
+    const code = `import OpenAI from "openai";\nimport { CohereClientV2 } from "cohere-ai";\nconst bot = new OpenAI();\nconst co = new CohereClientV2({});\nexport function a(q: string) {\n  return bot.chat({ messages: [{ role: "user", content: q }] });\n}\nexport function b(q: string) {\n  return co.chat({ model: "command-r", messages: [{ role: "user", content: q }] });\n}\n`;
+    expect(flowsOf(["openai", "cohere-ai"], code)).toEqual(["Cohere|high|9"]);
+  });
+});
+
 describe("third-party services", () => {
   it("flags Stripe and records how it is integrated", () => {
     const e = evidenceOf({ "package.json": pkg(["stripe"]), "pay.ts": `import Stripe from "stripe";\nconst s = new Stripe("x");\ns.checkout.sessions.create({});\n` });

@@ -1,0 +1,9 @@
+{
+  "name": "helpdesk-assistant",
+  "private": true,
+  "dependencies": {
+    "openai": "4.60.0",
+    "@anthropic-ai/sdk": "0.30.0",
+    "groq-sdk": "0.7.0"
+  }
+}

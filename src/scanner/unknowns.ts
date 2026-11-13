@@ -31,6 +31,28 @@ export function unknownsFor(all: FactDraft[], unanalysed = false): UnknownDraft[
     });
   }
 
+  // A prompt the scan couldn't tie to one provider: its flow facts are low confidence, and the user is asked.
+  const unclear = new Map<string, { line?: number; subjects: Set<string> }>();
+  for (const f of facts) {
+    const options = f.attributes?.possibleDestinations;
+    if (f.kind !== "data_flow" || !Array.isArray(options)) continue;
+    for (const loc of f.locations ?? []) {
+      const entry = unclear.get(loc.file) ?? { ...(loc.line ? { line: loc.line } : {}), subjects: new Set<string>() };
+      for (const s of options) entry.subjects.add(s);
+      unclear.set(loc.file, entry);
+    }
+  }
+  for (const [file, { line, subjects }] of [...unclear].sort(([a], [b]) => a.localeCompare(b))) {
+    const names = [...subjects].sort();
+    add({
+      key: `ai-destination-${slug(file.replace(/[()]/g, " "))}`,
+      topic: "AI prompt destination",
+      question: `Which AI provider receives the prompt sent from ${file}${line ? ` (line ${line})` : ""}: ${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}?`,
+      why: "The call goes through a client the scan couldn't tie to one provider's import.",
+      related: names.map((subject) => ({ kind: "data_flow" as const, subject })),
+    });
+  }
+
   const stores = [...new Set(facts.filter((f) => f.kind === "data_store").map((f) => f.subject))];
   for (const subject of stores) {
     const isSupabase = subject.startsWith("Supabase");

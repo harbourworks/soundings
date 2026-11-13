@@ -304,19 +304,29 @@ const AI_CALL_TAILS: string[][] = [
 ];
 const CONTENT_KEYS: ReadonlySet<string> = new Set(["content", "prompt", "input", "contents", "text", "system", "messages", "query"]);
 
+/** A model call whose prompt comes from somewhere other than a fixed string. */
+export interface PySend {
+  /** High when the prompt traces to a request or a function parameter (a caller supplies it), medium when it is dynamic but unclear. */
+  confidence: "high" | "medium";
+  line: number;
+  chain: string[];
+  /** Matched only as one of `ownTails`, a provider's own call shape. */
+  ownTail: boolean;
+}
+
 /**
- * Model calls whose prompt comes from somewhere other than a fixed string. High when it traces to a
- * request or a function parameter (a caller supplies it), medium when it is dynamic but unclear.
+ * Every model call whose prompt is not a fixed string, in file order.
  * `ownTails` are a provider's own call shapes, read only as a method on an object (`co.chat(...)`).
  */
-export function aiPayload(lines: PyLine[], calls: PyCall[], funcs: PyFunc[], ownTails: string[][] = []): { confidence: "high" | "medium"; line: number } | null {
+export function aiSends(lines: PyLine[], calls: PyCall[], funcs: PyFunc[], ownTails: string[][] = []): PySend[] {
   const params = new Set(funcs.flatMap((f) => f.params));
   for (const n of handlerInputs(funcs)) params.add(n);
   const reqVars = requestVariables(lines);
-  let best: { confidence: "high" | "medium"; line: number } | null = null;
+  const out: PySend[] = [];
 
   for (const c of calls) {
-    if (!AI_CALL_TAILS.some((t) => callEndsWith(c.chain, t)) && !ownTails.some((t) => c.chain.length > t.length && callEndsWith(c.chain, t))) continue;
+    const generic = AI_CALL_TAILS.some((t) => callEndsWith(c.chain, t));
+    if (!generic && !ownTails.some((t) => c.chain.length > t.length && callEndsWith(c.chain, t))) continue;
     const roots = new Set<string>();
     for (const v of valuesOf(c.args, CONTENT_KEYS)) {
       if (v.length === 1 && v[0]!.t === "str" && !isFString(v[0]!.s)) continue; // a fixed string
@@ -324,10 +334,74 @@ export function aiPayload(lines: PyLine[], calls: PyCall[], funcs: PyFunc[], own
     }
     if (roots.size === 0) continue;
     const traced = [...roots].some((r) => params.has(r) || reqVars.has(r) || REQUEST_ROOTS.has(r));
-    const candidate = { confidence: traced ? ("high" as const) : ("medium" as const), line: c.line };
-    if (!best || (candidate.confidence === "high" && best.confidence !== "high")) best = candidate;
+    out.push({ confidence: traced ? "high" : "medium", line: c.line, chain: c.chain, ownTail: !generic });
   }
-  return best;
+  return out;
+}
+
+/**
+ * The local names imports bind, each with the dotted name it stands for:
+ * `import a.b` binds `a`, `import a.b as c` binds `c` to `a.b`, `from x import y as z` binds `z` to `x.y`.
+ */
+export function importBindings(lines: PyLine[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const dotted = (t: Tok[], i: number): [string[], number] => {
+    const parts: string[] = [];
+    while (isName(t[i]) && !isName(t[i], "import") && !isName(t[i], "as")) {
+      parts.push(t[i]!.s);
+      i++;
+      if (isOp(t[i], ".")) i++;
+      else break;
+    }
+    return [parts, i];
+  };
+  for (const l of lines) {
+    const t = l.toks;
+    if (isName(t[0], "import")) {
+      for (let i = 1; i < t.length; i++) {
+        const [parts, next] = dotted(t, i);
+        i = next;
+        if (parts.length === 0) continue;
+        if (isName(t[i], "as") && isName(t[i + 1])) {
+          out.set(t[i + 1]!.s, parts.join("."));
+          i += 2;
+        } else out.set(parts[0]!, parts[0]!);
+        while (i < t.length && !isOp(t[i], ",")) i++;
+      }
+    } else if (isName(t[0], "from") && isName(t[1])) {
+      const [parts, at] = dotted(t, 1);
+      if (!isName(t[at], "import")) continue;
+      for (let i = at + 1; i < t.length; i++) {
+        if (!isName(t[i]) || isName(t[i], "as")) continue;
+        const name = t[i]!.s;
+        if (isName(t[i + 1], "as") && isName(t[i + 2])) {
+          out.set(t[i + 2]!.s, `${parts.join(".")}.${name}`);
+          i += 2;
+        } else out.set(name, `${parts.join(".")}.${name}`);
+      }
+    }
+  }
+  return out;
+}
+
+const BLOCK_KEYWORDS = new Set(["else", "try", "finally", "if", "elif", "while", "for", "with", "except", "lambda", "case", "match"]);
+
+/** `name = rhs...`, `self.name = rhs...` and `name: Type = rhs...`: the assigned dotted name and the dotted name the value starts with. */
+export function assignments(lines: PyLine[]): Array<{ target: string; value: string[] }> {
+  const out: Array<{ target: string; value: string[] }> = [];
+  for (const l of lines) {
+    // `else: c = X()` on one line: the assignment follows the colon.
+    const from = isName(l.toks[0]) && BLOCK_KEYWORDS.has(l.toks[0]!.s) && isOp(l.toks[1], ":") ? 2 : 0;
+    const t = l.toks.slice(from);
+    const target = dottedAt(t, 0);
+    let eq = target.length * 2 - 1;
+    if (target.length > 0 && !BLOCK_KEYWORDS.has(target[0]!) && isOp(t[eq], ":")) while (eq < t.length && !isOp(t[eq], "=")) eq++;
+    if (target.length === 0 || !isOp(t[eq], "=") || isOp(t[eq + 1], "=")) continue;
+    const start = isName(t[eq + 1], "await") ? eq + 2 : eq + 1;
+    const value = dottedAt(t, start);
+    if (value.length > 0) out.push({ target: target.join("."), value });
+  }
+  return out;
 }
 
 const LOG_LEVELS = new Set(["debug", "info", "warning", "warn", "error", "exception", "critical", "log"]);
