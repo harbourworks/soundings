@@ -1,7 +1,7 @@
 import type { FactDraft } from "../../evidence/build.js";
 import { walkAst } from "../../core/js.js";
 import type { Node } from "@babel/types";
-import { calls, chainOf, dynamicRoots, endsWith, firstStringProperty, lineOf, paramNames, requestVariables } from "../ast.js";
+import { calls, chainOf, dynamicRoots, endsWith, firstStringProperty, lineOf, namedImports, paramNames, requestVariables } from "../ast.js";
 import { importsModule, importsPy } from "../context.js";
 import { aiPayload, firstStringKwarg } from "../python/parse.js";
 import type { Detector, JsFile, ScanContext } from "../types.js";
@@ -119,6 +119,8 @@ const AI_CALL_TAILS: string[][] = [
   ["chat", "stream"],
 ];
 const AI_CALL_FUNCTIONS = new Set(["generateText", "streamText", "generateObject", "streamObject", "embed", "embedMany"]);
+/** The module that exports `AI_CALL_FUNCTIONS`, so `import { generateText as gt } from "ai"` makes `gt(...)` a model call. */
+const AI_CALL_MODULES = new Set(["ai"]);
 const CONTENT_KEYS = new Set(["content", "prompt", "input", "contents", "text", "system", "messages"]);
 
 /**
@@ -131,13 +133,16 @@ function payloadIn(f: JsFile, providers: ProviderSpec[]): { confidence: "high" |
   const params = paramNames(f.ast);
   const ownTails = providers.flatMap((p) => p.calls?.js ?? []);
   const commands = new Set(providers.flatMap((p) => p.commands ?? []));
+  // Aliased names resolve to what they were imported as, only when imported from the SDK's own module.
+  const fnNames = namedImports(f.ast, AI_CALL_MODULES);
+  const commandNames = namedImports(f.ast, new Set(providers.flatMap((p) => (p.commands ? p.packages : []))));
   let best: { confidence: "high" | "medium"; line?: number } | null = null;
 
   const sends: Array<{ args: Node[]; line?: number }> = [];
   for (const call of calls(f.ast)) {
     const isAiCall =
       (call.chain !== null && AI_CALL_TAILS.some((t) => endsWith(call.chain, t))) ||
-      (call.chain !== null && call.chain.length === 1 && AI_CALL_FUNCTIONS.has(call.chain[0]!)) ||
+      (call.chain !== null && call.chain.length === 1 && AI_CALL_FUNCTIONS.has(fnNames.get(call.chain[0]!) ?? call.chain[0]!)) ||
       (call.chain !== null && ownTails.some((t) => call.chain!.length > t.length && endsWith(call.chain, t)));
     if (isAiCall && call.node.type === "CallExpression") sends.push({ args: call.node.arguments, ...(call.line ? { line: call.line } : {}) });
   }
@@ -146,7 +151,8 @@ function payloadIn(f: JsFile, providers: ProviderSpec[]): { confidence: "high" |
       if (n.type !== "NewExpression") return undefined;
       const chain = chainOf(n.callee);
       const line = lineOf(n);
-      if (chain && commands.has(chain[chain.length - 1]!)) sends.push({ args: n.arguments, ...(line ? { line } : {}) });
+      const name = chain?.length === 1 ? (commandNames.get(chain[0]!) ?? chain[0]!) : chain?.[chain.length - 1];
+      if (name && commands.has(name)) sends.push({ args: n.arguments, ...(line ? { line } : {}) });
       return undefined;
     });
   }

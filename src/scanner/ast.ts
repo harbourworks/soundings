@@ -47,6 +47,23 @@ export function calls(ast: Node): Array<{ node: Node; chain: string[] | null; li
   return out;
 }
 
+/**
+ * Named imports from `modules`, as local name to imported name: `import { generateText as gt } from "ai"`
+ * maps `gt` to `generateText`. Default and namespace imports are not included.
+ */
+export function namedImports(ast: Node, modules: ReadonlySet<string>): Map<string, string> {
+  const out = new Map<string, string>();
+  if (modules.size === 0) return out;
+  walkAst(ast, (n) => {
+    if (n.type !== "ImportDeclaration" || !modules.has(n.source.value)) return undefined;
+    for (const s of n.specifiers) {
+      if (s.type === "ImportSpecifier") out.set(s.local.name, s.imported.type === "Identifier" ? s.imported.name : s.imported.value);
+    }
+    return undefined;
+  });
+  return out;
+}
+
 export const endsWith = (chain: string[] | null, tail: string[]): boolean =>
   chain !== null && chain.length >= tail.length && tail.every((t, i) => chain[chain.length - tail.length + i] === t);
 

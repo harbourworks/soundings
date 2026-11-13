@@ -158,6 +158,36 @@ describe("data flow to the newer AI providers", () => {
     expect(f.filter((x) => x.startsWith("ai_provider"))).toEqual([]);
   });
 
+  it("traces a prompt through an aliased AI SDK call and an aliased Bedrock command", () => {
+    const gt = `import { generateText as gt } from "ai";\nimport { openai } from "@ai-sdk/openai";\nexport function ask(question: string) {\n  return gt({ model: openai("gpt-4o"), prompt: question });\n}\n`;
+    expect(flowOf("@ai-sdk/openai", gt)).toEqual(["OpenAI|high|4"]);
+    const conv = `import { BedrockRuntimeClient, ConverseCommand as Conv } from "@aws-sdk/client-bedrock-runtime";\nconst client = new BedrockRuntimeClient({});\nexport function ask(note: string) {\n  return client.send(new Conv({ modelId: "m", messages: [{ role: "user", content: [{ text: note }] }] }));\n}\n`;
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", conv)).toEqual(["AWS Bedrock|high|4"]);
+  });
+
+  it("traces other aliased shapes: a stream call, a quoted import name, and a mixed import list", () => {
+    const st = `import { streamText as st, generateText } from "ai";\nimport { anthropic } from "@ai-sdk/anthropic";\nexport const g = generateText;\nexport function ask(q: string) {\n  return st({ model: anthropic("m"), messages: [{ role: "user", content: q }] });\n}\n`;
+    expect(flowOf("@ai-sdk/anthropic", st)).toEqual(["Anthropic|high|5"]);
+    const quoted = `import { "generateText" as gen } from "ai";\nimport { openai } from "@ai-sdk/openai";\nexport function ask(q: string) {\n  return gen({ model: openai("m"), prompt: q });\n}\n`;
+    expect(flowOf("@ai-sdk/openai", quoted)).toEqual(["OpenAI|high|4"]);
+    const streamCmd = `import { ConverseStreamCommand as Stream } from "@aws-sdk/client-bedrock-runtime";\nimport { load } from "./x";\nconst note = load();\nexport const cmd = new Stream({ modelId: "m", messages: [{ role: "user", content: [{ text: note }] }] });\n`;
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", streamCmd)).toEqual(["AWS Bedrock|medium|4"]);
+  });
+
+  it("does not take a local gt or Conv, or one imported from elsewhere, for an aliased SDK name", () => {
+    const localGt = `import { generateText } from "ai";\nimport { openai } from "@ai-sdk/openai";\nexport const g = generateText;\nfunction gt(x: unknown) { return x; }\nexport function ask(q: string) {\n  return gt({ model: openai("m"), prompt: q });\n}\n`;
+    expect(flowOf("@ai-sdk/openai", localGt)).toEqual([]);
+    const localConv = `import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";\nexport const c = new BedrockRuntimeClient({});\nclass Conv { constructor(readonly x: unknown) {} }\nexport function ask(t: string) {\n  return new Conv({ messages: [{ role: "user", content: [{ text: t }] }] });\n}\n`;
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", localConv)).toEqual([]);
+    const elsewhere = `import { generateText as gt } from "./my-ai";\nimport { openai } from "@ai-sdk/openai";\nimport { ConverseCommand as Conv } from "./commands";\nimport { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";\nexport const c = new BedrockRuntimeClient({});\nexport function ask(q: string) {\n  return [gt({ model: openai("m"), prompt: q }), new Conv({ messages: [{ role: "user", content: [{ text: q }] }] })];\n}\n`;
+    expect(evidenceOf({ "package.json": pkg(["@ai-sdk/openai", "@aws-sdk/client-bedrock-runtime"]), "src/ai.ts": elsewhere }).facts.filter((f) => f.kind === "data_flow")).toEqual([]);
+  });
+
+  it("does not read an alias written only in a comment or a string", () => {
+    const code = `// import { generateText as gt } from "ai";\n/* import { ConverseCommand as Conv } from "@aws-sdk/client-bedrock-runtime"; */\nimport { openai } from "@ai-sdk/openai";\nimport { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";\nimport { gt, Conv } from "./helpers";\nexport const how = 'import { generateText as gt } from "ai"';\nexport const c = new BedrockRuntimeClient({});\nexport function ask(q: string) {\n  return [gt({ model: openai("m"), prompt: q }), new Conv({ messages: [{ role: "user", content: [{ text: q }] }] })];\n}\n`;
+    expect(evidenceOf({ "package.json": pkg(["@ai-sdk/openai", "@aws-sdk/client-bedrock-runtime"]), "src/ai.ts": code }).facts.filter((f) => f.kind === "data_flow")).toEqual([]);
+  });
+
   it("does not take a local function called chat for Cohere's client method", () => {
     const code = `import { CohereClientV2 } from "cohere-ai";\nexport const c = new CohereClientV2({});\nfunction chat(x: unknown) { return x; }\nexport function ask(text: string) {\n  return chat({ messages: [{ role: "user", content: text }] });\n}\n`;
     expect(flowOf("cohere-ai", code)).toEqual([]);
