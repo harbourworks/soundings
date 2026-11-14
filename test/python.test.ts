@@ -126,6 +126,26 @@ describe("python detectors", () => {
       expect(flows(branch.replace("else: c = Anthropic()", "d = Anthropic()"))).toEqual(["OpenAI|high|7"]);
     });
 
+    it("treats a client picked by a conditional expression, or by anything but one call or name, as unclear", () => {
+      const pick = "import os\nfrom groq import Groq\nfrom openai import OpenAI\ndef reword(draft):\n    client = Groq() if os.environ.get('USE_GROQ') == '1' else OpenAI()\n    return client.chat.completions.create(model='m', messages=[{'role': 'user', 'content': draft}])\n";
+      expect(flows(pick)).toEqual(["Groq|low|6", "OpenAI|low|6"]);
+      const q = evidenceOf({ "app/both.py": pick }).unknowns.find((u) => u.id === "UQ-ai-destination-app-both-py");
+      expect(q?.question).toBe("Which AI provider receives the prompt sent from app/both.py (line 6): Groq or OpenAI?");
+      expect(flows(pick.replace("Groq() if os.environ.get('USE_GROQ') == '1' else OpenAI()", "OpenAI() or Groq()"))).toEqual(["Groq|low|6", "OpenAI|low|6"]);
+      expect(flows(pick.replace("Groq() if os.environ.get('USE_GROQ') == '1' else OpenAI()", "(Groq() if FAST else OpenAI())"))).toEqual(["Groq|low|6", "OpenAI|low|6"]);
+      // One call, with arguments, still binds; so does a call that awaits.
+      expect(flows(pick.replace("Groq() if os.environ.get('USE_GROQ') == '1' else OpenAI()", "OpenAI(api_key=os.environ['K'], timeout=(1, 2))"))).toEqual(["OpenAI|high|6"]);
+    });
+
+    it("treats a client reassigned from something the scan can't resolve as unclear, but not one first set to None", () => {
+      const re = `${head}from app.pick import pick_client\nif ALT:\n    gpt = pick_client()\ndef ask(q):\n${toGpt("q")}`;
+      expect(flows(re)).toEqual(["Anthropic|low|9", "OpenAI|low|9"]);
+      const alias = `${head}from app.pick import pick_client\nfast = gpt\nif ALT:\n    gpt = pick_client()\ndef ask(q):\n    return fast.chat.completions.create(model='m', messages=[{'role': 'user', 'content': q}])\n`;
+      expect(flows(alias)).toEqual(["Anthropic|low|10", "OpenAI|low|10"]);
+      const lazy = "from anthropic import Anthropic\nfrom openai import OpenAI\nclaude = Anthropic()\n_gpt = None\ndef ask(q):\n    global _gpt\n    _gpt = OpenAI()\n    return _gpt.chat.completions.create(model='m', messages=[{'role': 'user', 'content': q}])\n";
+      expect(flows(lazy)).toEqual(["OpenAI|high|8"]);
+    });
+
     it("gives a call it can't tie to one provider low confidence for each, and asks which one it is", () => {
       const code = `${head}from app.pick import pick\ndef ask(question):\n    return pick().messages.create(model='m', messages=[{'role': 'user', 'content': question}])\n`;
       expect(flows(code)).toEqual(["Anthropic|low|7", "OpenAI|low|7"]);

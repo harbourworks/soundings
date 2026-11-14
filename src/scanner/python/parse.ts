@@ -386,9 +386,23 @@ export function importBindings(lines: PyLine[]): Map<string, string> {
 
 const BLOCK_KEYWORDS = new Set(["else", "try", "finally", "if", "elif", "while", "for", "with", "except", "lambda", "case", "match"]);
 
-/** `name = rhs...`, `self.name = rhs...` and `name: Type = rhs...`: the assigned dotted name and the dotted name the value starts with. */
-export function assignments(lines: PyLine[]): Array<{ target: string; value: string[] }> {
-  const out: Array<{ target: string; value: string[] }> = [];
+/** The index just past the bracket that closes the one opening at `i`. */
+function pastClose(t: Tok[], i: number): number {
+  let depth = 0;
+  for (let k = i; k < t.length; k++) {
+    if (t[k]!.t === "op" && "([{".includes(t[k]!.s)) depth++;
+    else if (t[k]!.t === "op" && ")]}".includes(t[k]!.s) && --depth === 0) return k + 1;
+  }
+  return t.length;
+}
+
+/**
+ * `name = rhs`, `self.name = rhs` and `name: Type = rhs`: the assigned dotted name and, when the value is
+ * one dotted name or one call of it (`OpenAI(...)`, `await make()`), that dotted name. Any other value
+ * (`A() if c else B()`, `a or b`, `make().x`, a literal) gives `null`, because it can't be read as one thing.
+ */
+export function assignments(lines: PyLine[]): Array<{ target: string; value: string[] | null }> {
+  const out: Array<{ target: string; value: string[] | null }> = [];
   for (const l of lines) {
     // `else: c = X()` on one line: the assignment follows the colon.
     const from = isName(l.toks[0]) && BLOCK_KEYWORDS.has(l.toks[0]!.s) && isOp(l.toks[1], ":") ? 2 : 0;
@@ -399,7 +413,10 @@ export function assignments(lines: PyLine[]): Array<{ target: string; value: str
     if (target.length === 0 || !isOp(t[eq], "=") || isOp(t[eq + 1], "=")) continue;
     const start = isName(t[eq + 1], "await") ? eq + 2 : eq + 1;
     const value = dottedAt(t, start);
-    if (value.length > 0) out.push({ target: target.join("."), value });
+    let end = start + value.length * 2 - 1;
+    if (value.length > 0 && isOp(t[end], "(")) end = pastClose(t, end);
+    const whole = value.length > 0 && (end >= t.length || isOp(t[end], ";"));
+    out.push({ target: target.join("."), value: whole ? value : null });
   }
   return out;
 }

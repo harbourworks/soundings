@@ -176,18 +176,38 @@ function jsBindings(f: JsFile): (chain: string[] | null) => ProviderSpec | undef
     return undefined;
   });
   // Clients, in two passes so that a client made from another client (`const c = o`) is followed.
-  for (let pass = 0; pass < 2; pass++) {
-    walkAst(f.ast, (n) => {
-      if (n.type === "VariableDeclarator" && n.id.type === "Identifier") bind([n.id.name], resolve(valueChain(n.init)));
-      if (n.type === "AssignmentExpression" && n.operator === "=") {
-        const target = chainOf(n.left);
-        if (target) bind([target.join(".")], resolve(valueChain(n.right)));
-      }
-      if ((n.type === "ClassProperty" || n.type === "ClassPrivateProperty") && n.key.type === "Identifier") bind([`this.${n.key.name}`], resolve(valueChain(n.value)));
-      return undefined;
-    });
-  }
+  const assigned: Array<{ target: string; value: Node | null | undefined }> = [];
+  walkAst(f.ast, (n) => {
+    if (n.type === "VariableDeclarator" && n.id.type === "Identifier") assigned.push({ target: n.id.name, value: n.init });
+    if (n.type === "AssignmentExpression" && n.operator === "=") {
+      const target = chainOf(n.left);
+      if (target) assigned.push({ target: target.join("."), value: n.right });
+    }
+    if ((n.type === "ClassProperty" || n.type === "ClassPrivateProperty") && n.key.type === "Identifier") assigned.push({ target: `this.${n.key.name}`, value: n.value });
+    return undefined;
+  });
+  for (let pass = 0; pass < 2; pass++) for (const a of assigned) bind([a.target], resolve(valueChain(a.value)));
+  // No value, `null` or `undefined` (a client set later) is not another possibility, and `require("x")` was read above as an import; anything else unresolved is.
+  const empty = (v: Node | null | undefined) => !v || v.type === "NullLiteral" || (v.type === "Identifier" && v.name === "undefined") || loaded(v) !== null;
+  unclearWhenReassigned(bound, assigned.filter((a) => !empty(a.value)).map((a) => ({ target: a.target, resolves: () => resolve(valueChain(a.value)) !== undefined })));
   return resolve;
+}
+
+/**
+ * A name bound to a provider's client that is also assigned something the scan can't resolve
+ * (`c = pickClient()`) might hold another provider's client, so it stands for neither. Repeated so
+ * that a name copied from one that became unclear (`fast = c`) becomes unclear too.
+ */
+function unclearWhenReassigned(bound: Map<string, ProviderSpec | null>, assigned: Array<{ target: string; resolves: () => boolean }>): void {
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const a of assigned) {
+      if (bound.get(a.target) && !a.resolves()) {
+        bound.set(a.target, null);
+        changed = true;
+      }
+    }
+  }
 }
 
 /** The value of property `name` in the first argument, if it is an object literal. */
@@ -278,12 +298,15 @@ function pyBindings(f: PyFile): (chain: string[]) => ProviderSpec | undefined {
     const full = [base, ...chain.slice(1)].join(".");
     return AI_PROVIDERS.find((p) => p.pyModules.some((m) => withinModule(full, m)));
   };
+  const all = assignments(f.lines);
   for (let pass = 0; pass < 2; pass++) {
-    for (const a of assignments(f.lines)) {
-      const p = resolve(a.value);
+    for (const a of all) {
+      const p = a.value ? resolve(a.value) : undefined;
       if (p) clients.set(a.target, clients.has(a.target) && clients.get(a.target) !== p ? null : p);
     }
   }
+  // `client = None` before the real client is set is not another possibility; anything else unresolved is.
+  unclearWhenReassigned(clients, all.filter((a) => !(a.value?.length === 1 && a.value[0] === "None")).map((a) => ({ target: a.target, resolves: () => (a.value ? resolve(a.value) : undefined) !== undefined })));
   return resolve;
 }
 

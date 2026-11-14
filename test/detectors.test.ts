@@ -231,6 +231,15 @@ describe("which provider a prompt is sent to", () => {
     expect(flowsOf(both, code)).toEqual(["Anthropic|low|8", "OpenAI|low|8"]);
   });
 
+  it("treats a client reassigned from something the scan can't resolve as unclear, but not one first set to null", () => {
+    const re = `${head}import { pickClient } from "./pick";\nexport async function run(question: string) {\n  let c = new OpenAI();\n  if (process.env.ALT) c = pickClient();\n${toOpenAI("question").replace("o.chat", "c.chat")}}\n`;
+    expect(flowsOf(both, re)).toEqual(["Anthropic|low|9", "OpenAI|low|9"]);
+    const field = `${head}import { pickClient } from "./pick";\nexport class Bot {\n  private llm = new OpenAI();\n  swap() { this.llm = pickClient(); }\n  ask(q: string) {\n${toOpenAI("q").replace("o.chat", "this.llm.chat")}  }\n}\n`;
+    expect(flowsOf(both, field)).toEqual(["Anthropic|low|10", "OpenAI|low|10"]);
+    const lazy = `${head}let c: OpenAI | null = null;\nlet d: OpenAI | undefined = undefined;\nexport function ask(q: string) {\n  c = new OpenAI();\n  d = c;\n${toOpenAI("q").replace("o.chat", "d.chat")}}\n`;
+    expect(flowsOf(both, lazy)).toEqual(["OpenAI|high|10"]);
+  });
+
   it("reads the provider from the model passed to a Vercel AI SDK call", () => {
     const code = `import { generateText } from "ai";\nimport { openai } from "@ai-sdk/openai";\nimport { anthropic } from "@ai-sdk/anthropic";\nconst fast = anthropic("claude-haiku-5-5");\nexport function health() {\n  return generateText({ model: fast, prompt: "fixed health check" });\n}\nexport function ask(question: string) {\n  return generateText({ model: openai("gpt-4o"), prompt: question });\n}\nexport function label(ticket: string) {\n  return generateText({ model: fast, prompt: ticket });\n}\n`;
     expect(flowsOf(["ai", "@ai-sdk/openai", "@ai-sdk/anthropic"], code)).toEqual(["Anthropic|high|12", "OpenAI|high|9"]);
