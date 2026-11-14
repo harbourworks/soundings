@@ -183,6 +183,41 @@ describe("data flow to the newer AI providers", () => {
     expect(evidenceOf({ "package.json": pkg(["@ai-sdk/openai", "@aws-sdk/client-bedrock-runtime"]), "src/ai.ts": elsewhere }).facts.filter((f) => f.kind === "data_flow")).toEqual([]);
   });
 
+  it("does not resolve an alias where a function or block re-binds the same name", () => {
+    // The gatekeeper's case: the alias is imported, then shadowed by a local const inside a function.
+    const constGt = `import { generateText as gt } from "ai";\nimport { openai } from "@ai-sdk/openai";\nexport const m = openai("m");\nexport function ask(q: string) {\n  const gt = (x: unknown) => x;\n  return gt({ prompt: q });\n}\n`;
+    expect(flowOf("@ai-sdk/openai", constGt)).toEqual([]);
+    const classConv = `import { BedrockRuntimeClient, ConverseCommand as Conv } from "@aws-sdk/client-bedrock-runtime";\nexport const c = new BedrockRuntimeClient({});\nexport function ask(t: string) {\n  class Conv { constructor(readonly x: unknown) {} }\n  return new Conv({ messages: [{ role: "user", content: [{ text: t }] }] });\n}\n`;
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", classConv)).toEqual([]);
+    const shadows: string[] = [
+      // a parameter
+      `export function ask(gt: (x: unknown) => unknown, q: string) {\n  return gt({ prompt: q });\n}\n`,
+      // a destructured parameter of an arrow function
+      `export const ask = ({ gt }: { gt: (x: unknown) => unknown }, q: string) => gt({ prompt: q });\n`,
+      // a var in a nested block, hoisted to the function
+      `export function ask(q: string) {\n  if (q) { var gt = (x: unknown) => x; }\n  return gt!({ prompt: q });\n}\n`,
+      // a function declared in a block
+      `export function ask(q: string) {\n  {\n    function gt(x: unknown) { return x; }\n    return gt({ prompt: q });\n  }\n}\n`,
+      // a catch parameter
+      `export function ask(q: string) {\n  try { return null; } catch (gt: any) { return gt({ prompt: q }); }\n}\n`,
+      // a for-of binding
+      `export function ask(q: string, fns: Array<(x: unknown) => unknown>) {\n  for (const gt of fns) gt({ prompt: q });\n}\n`,
+      // a named function expression calling itself
+      `export const ask = function gt(q: string): unknown {\n  return gt({ prompt: q } as never);\n};\n`,
+    ];
+    for (const body of shadows) {
+      const code = `import { generateText as gt } from "ai";\nimport { openai } from "@ai-sdk/openai";\nexport const m = openai("m");\n${body}`;
+      expect(flowOf("@ai-sdk/openai", code), body).toEqual([]);
+    }
+  });
+
+  it("still resolves an alias outside the scope that re-binds it", () => {
+    const code = `import { generateText as gt } from "ai";\nimport { openai } from "@ai-sdk/openai";\nexport function other() {\n  const gt = (x: unknown) => x;\n  return gt({ prompt: "fixed" });\n}\nexport function ask(q: string) {\n  return gt({ model: openai("m"), prompt: q });\n}\n`;
+    expect(flowOf("@ai-sdk/openai", code)).toEqual(["OpenAI|high|8"]);
+    const conv = `import { ConverseCommand as Conv } from "@aws-sdk/client-bedrock-runtime";\nexport function other(t: string) {\n  { class Conv { constructor(readonly x: unknown) {} } return new Conv(t); }\n}\nexport function ask(t: string) {\n  return new Conv({ modelId: "m", messages: [{ role: "user", content: [{ text: t }] }] });\n}\n`;
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", conv)).toEqual(["AWS Bedrock|high|6"]);
+  });
+
   it("does not read an alias written only in a comment or a string", () => {
     const code = `// import { generateText as gt } from "ai";\n/* import { ConverseCommand as Conv } from "@aws-sdk/client-bedrock-runtime"; */\nimport { openai } from "@ai-sdk/openai";\nimport { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";\nimport { gt, Conv } from "./helpers";\nexport const how = 'import { generateText as gt } from "ai"';\nexport const c = new BedrockRuntimeClient({});\nexport function ask(q: string) {\n  return [gt({ model: openai("m"), prompt: q }), new Conv({ messages: [{ role: "user", content: [{ text: q }] }] })];\n}\n`;
     expect(evidenceOf({ "package.json": pkg(["@ai-sdk/openai", "@aws-sdk/client-bedrock-runtime"]), "src/ai.ts": code }).facts.filter((f) => f.kind === "data_flow")).toEqual([]);
