@@ -47,7 +47,110 @@ export function calls(ast: Node): Array<{ node: Node; chain: string[] | null; li
   return out;
 }
 
-export const endsWith = (chain: string[] | null, tail: string[]): boolean =>
+/**
+ * Named imports from `modules`, as local name to imported name: `import { generateText as gt } from "ai"`
+ * maps `gt` to `generateText`. Default and namespace imports are not included.
+ */
+export function namedImports(ast: Node, modules: ReadonlySet<string>): Map<string, string> {
+  const out = new Map<string, string>();
+  if (modules.size === 0) return out;
+  walkAst(ast, (n) => {
+    if (n.type !== "ImportDeclaration" || !modules.has(n.source.value)) return undefined;
+    for (const s of n.specifiers) {
+      if (s.type === "ImportSpecifier") out.set(s.local.name, s.imported.type === "Identifier" ? s.imported.name : s.imported.value);
+    }
+    return undefined;
+  });
+  return out;
+}
+
+const FUNCTION_TYPES = new Set(["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression", "ObjectMethod", "ClassMethod", "ClassPrivateMethod"]);
+
+/** Names a statement declares in the block that holds it: `const a`, `function a`, `class a`, `enum a`, and exported forms. */
+function declaredBy(s: Node): string[] {
+  switch (s.type) {
+    case "VariableDeclaration":
+      return s.declarations.flatMap((d) => boundNames(d.id));
+    case "FunctionDeclaration":
+    case "ClassDeclaration":
+    case "TSEnumDeclaration":
+      return s.id ? [s.id.name] : [];
+    case "ExportNamedDeclaration":
+    case "ExportDefaultDeclaration":
+      return s.declaration ? declaredBy(s.declaration) : [];
+    default:
+      return [];
+  }
+}
+
+/** Every `var` name inside a function body, which hoists to the function. Nested functions are not entered. */
+function varNames(body: Node): string[] {
+  const out: string[] = [];
+  walkAst(body, (n) => {
+    if (FUNCTION_TYPES.has(n.type)) return false;
+    if (n.type === "VariableDeclaration" && n.kind === "var") for (const d of n.declarations) out.push(...boundNames(d.id));
+    return undefined;
+  });
+  return out;
+}
+
+/** Value names a scope node binds for the code inside it. Import specifiers are left out: they are what is being resolved. */
+function scopeBindings(n: Node): string[] {
+  switch (n.type) {
+    case "Program":
+    case "BlockStatement":
+    case "StaticBlock":
+    case "TSModuleBlock":
+      return n.body.flatMap(declaredBy);
+    case "SwitchStatement":
+      return n.cases.flatMap((c) => c.consequent.flatMap(declaredBy));
+    case "ForStatement":
+      return n.init ? declaredBy(n.init) : [];
+    case "ForInStatement":
+    case "ForOfStatement":
+      return declaredBy(n.left);
+    case "CatchClause":
+      return boundNames(n.param);
+    case "ClassExpression":
+      return n.id ? [n.id.name] : [];
+    case "FunctionDeclaration":
+    case "FunctionExpression":
+    case "ArrowFunctionExpression":
+    case "ObjectMethod":
+    case "ClassMethod":
+    case "ClassPrivateMethod":
+      return [
+        ...n.params.flatMap((p) => boundNames(p)),
+        ...(n.type === "FunctionExpression" && n.id ? [n.id.name] : []),
+        ...varNames(n.body),
+      ];
+    default:
+      return [];
+  }
+}
+
+/**
+ * Returns a check for whether `name`, used at node `at`, is bound by something in the file other than an import:
+ * a parameter, a local `const`/`let`/`var`, a function, a class or a catch parameter in any enclosing scope.
+ * Used so that `import { generateText as gt } from "ai"` doesn't make a local `gt` a model call.
+ */
+export function localBinding(ast: Node): (at: Node, name: string) => boolean {
+  const parents = new Map<Node, Node>();
+  walkAst(ast, (n, parent) => {
+    if (parent) parents.set(n, parent);
+  });
+  const cache = new Map<Node, Set<string>>();
+  return (at, name) => {
+    for (let p = parents.get(at); p; p = parents.get(p)) {
+      let names = cache.get(p);
+      if (!names) cache.set(p, (names = new Set(scopeBindings(p))));
+      if (names.has(name)) return true;
+    }
+    return false;
+  };
+}
+
+export const endsWith =(chain: string[] | null, tail: string[]): boolean =>
   chain !== null && chain.length >= tail.length && tail.every((t, i) => chain[chain.length - tail.length + i] === t);
 
 /** Names bound by a pattern: `a`, `{ a, b: c }`, `[a, ...rest]`, `a = 1`. */
