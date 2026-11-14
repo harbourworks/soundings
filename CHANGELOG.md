@@ -2,6 +2,17 @@
 
 All notable changes to soundings-cli. Versions follow [semantic versioning](https://semver.org); while it's 0.x, a minor version can change behaviour.
 
+## 0.2.0 (14 November 2026)
+
+More AI providers and two ORMs recognised, so fewer projects come back as "No AI provider found" or "No database found" when the code says otherwise.
+
+- **Mistral, Cohere, Groq and AWS Bedrock** are detected as AI providers, in JavaScript/TypeScript (`@mistralai/mistralai`, `cohere-ai`, `groq-sdk`, `@aws-sdk/client-bedrock-runtime` and their `@ai-sdk/*` packages) and Python (`mistralai`, `cohere`, `groq`, and the `langchain_mistralai`, `langchain_cohere` and `langchain_aws` packages). Each one found raises its own data-use question (`UQ-mistral-data-use` and so on).
+- **Prompts sent to the new providers** are traced: Mistral's `chat.complete` and `chat.stream`, Cohere's client `chat` and `chatStream` (`chat_stream` in Python), Bedrock's `ConverseCommand` and `ConverseStreamCommand` (JavaScript), and Groq's OpenAI-style calls. A Bedrock client created with `boto3`, and prompts sent through LangChain's Bedrock wrapper, are not traced yet.
+- **Prisma and Drizzle** are detected as data stores. Prisma's engine is read from the `datasource` provider in the `.prisma` schema (PostgreSQL, MySQL, SQLite, MongoDB, SQL Server or CockroachDB); Drizzle's from its `pg-core`, `mysql-core` or `sqlite-core` schema module. When the engine can't be read the report says "SQL database (Prisma)" or "SQL database (Drizzle)" at medium confidence. When an ORM and a database client point at the same engine, the report shows one fact listing both locations. A found store also raises its hosting and retention questions.
+- **`soundings verify`** now also checks the names SQLite, SQL Server, CockroachDB and Bedrock: a sentence that names one of them must cite a source that names it too. Before, a sentence such as "We use SQLite" passed with any reference.
+- **Licence:** `LICENSE` and `LICENSE-COMMERCIAL.md` now name the files covered by the Soundings Commercial Licence: `src/documents/build.ts`, the `src/import/` folder, seven named files in `src/export/` (the HTML, Word and questionnaire exports and the code that renders them), and the parts of `src/cli/main.ts` that run the paid commands and formats. Earlier text pointed at a `src/pro/` folder that doesn't exist. The scanner, questions, `verify` and everything else stay under the Functional Source License.
+- The README now says the package is on npm.
+
 ## 0.1.0 (11 November 2026)
 
 First release. A local scanner and document writer for security questionnaires: scan a JavaScript, TypeScript or Python project, answer only what the code cannot, and draft answers and documents where every statement points to a source.
