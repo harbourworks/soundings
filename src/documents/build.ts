@@ -1,5 +1,6 @@
 import type { AnswersFile, EvidenceFile, Fact } from "../evidence/schema.js";
 import { footnoteLines, usedRefs, withFootnoteMarks } from "../export/footnotes.js";
+import { documentUse } from "../evidence/refs.js";
 import { DRAFT_NOTICE, NOT_YET_PROVIDED } from "../export/notice.js";
 import { BANK } from "../questions/bank.js";
 import { buildAnswerCtx } from "../questions/context.js";
@@ -107,7 +108,8 @@ function serviceRows(ctx: AnswerCtx): string[][] {
     const cite = (text: string, extra: string[] = []) => `${text} [${[...ids, ...extra].join(", ")}]`;
     const purpose = kind === "ai_provider" ? "AI model provider" : kind === "data_store" ? "Data storage" : String(facts[0]!.attributes.purpose ?? "External service");
 
-    const flows = kind === "ai_provider" ? ctx.facts("data_flow").filter((f) => f.subject === subject) : [];
+    // A low-confidence flow is for the user to confirm, so it stays out of the table.
+    const flows = kind === "ai_provider" ? ctx.facts("data_flow").filter((f) => f.subject === subject && documentUse(f) !== "never") : [];
     const categories = [...new Set(flows.flatMap((f) => (Array.isArray(f.attributes.dataCategories) ? f.attributes.dataCategories : [])))];
     const data = flows.length ? `${categories.join(", ") || "Content sent in prompts"} [${refsOf(flows).join(", ")}]` : kind === "data_store" ? cite("Application data") : NOT_YET;
 

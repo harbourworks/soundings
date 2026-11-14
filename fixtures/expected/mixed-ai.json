@@ -1,0 +1,41 @@
+{
+  "fixture": "mixed-ai",
+  "project": {
+    "languages": ["python", "typescript"],
+    "frameworks": []
+  },
+  "facts": [
+    { "kind": "ai_provider", "subject": "OpenAI", "detector": "ai-provider/openai-sdk", "key": "src/both.ts", "files": ["src/both.ts"], "confidence": "high" },
+    { "kind": "ai_provider", "subject": "OpenAI", "detector": "ai-provider/openai-sdk", "key": "src/reword.ts", "files": ["src/reword.ts", "worker/reword.py"], "confidence": "high" },
+    { "kind": "ai_provider", "subject": "OpenAI", "detector": "ai-provider/openai-sdk", "key": "worker/answer.py", "files": ["worker/answer.py"], "confidence": "high" },
+    { "kind": "ai_provider", "subject": "Anthropic", "detector": "ai-provider/anthropic-sdk", "key": "src/both.ts", "files": ["src/both.ts"], "confidence": "high" },
+    { "kind": "ai_provider", "subject": "Anthropic", "detector": "ai-provider/anthropic-sdk", "key": "worker/answer.py", "files": ["worker/answer.py"], "confidence": "high" },
+    { "kind": "ai_provider", "subject": "Groq", "detector": "ai-provider/groq-sdk", "key": "src/reword.ts", "files": ["src/reword.ts"], "confidence": "high" },
+    { "kind": "ai_provider", "subject": "Groq", "detector": "ai-provider/groq-sdk", "key": "worker/reword.py", "files": ["worker/reword.py"], "confidence": "high" },
+    { "kind": "data_flow", "subject": "OpenAI", "detector": "data-flow/ai-request-payload", "key": "src/both.ts", "files": ["src/both.ts", "worker/answer.py"], "confidence": "high" },
+    { "kind": "data_flow", "subject": "OpenAI", "detector": "data-flow/ai-request-payload", "key": "src/reword.ts", "files": ["src/reword.ts", "worker/reword.py"], "confidence": "low" },
+    { "kind": "data_flow", "subject": "Groq", "detector": "data-flow/ai-request-payload", "key": "src/reword.ts", "files": ["src/reword.ts", "worker/reword.py"], "confidence": "low" },
+    { "kind": "data_store", "subject": "No database found", "detector": "data-store/none-found", "key": "project", "files": ["package.json"], "confidence": "medium" },
+    { "kind": "auth", "subject": "No sign-in found", "detector": "auth/none-found", "key": "project", "files": ["package.json"], "confidence": "medium" },
+    { "kind": "secret_handling", "subject": "Hard-coded keys", "detector": "secrets/hardcoded-patterns", "key": "project", "files": ["src/both.ts"], "confidence": "medium" },
+    { "kind": "logging", "subject": "Request-body logging", "detector": "logging/request-body", "key": "project", "files": ["src/both.ts"], "confidence": "medium" },
+    { "kind": "client_side_exposure", "subject": "Browser-exposed secrets", "detector": "client-exposure/public-secret-name", "key": "project", "files": ["src/both.ts"], "confidence": "medium" }
+  ],
+  "unknowns": ["ai-destination-src-reword-ts", "ai-destination-worker-reword-py", "anthropic-data-use", "groq-data-use", "openai-data-use"],
+  "decoys": [
+    {
+      "kind": "data_flow",
+      "subject": "Anthropic",
+      "file": "src/both.ts",
+      "contains": "content: \"fixed health check\"",
+      "why": "The file imports Anthropic, but only a fixed string goes to it; the function parameter goes to OpenAI's client."
+    },
+    {
+      "kind": "data_flow",
+      "subject": "Anthropic",
+      "file": "worker/answer.py",
+      "contains": "\"content\": \"fixed health check\"",
+      "why": "The same in Python: the Anthropic client sends a fixed string, and only the OpenAI client sends the caller's question."
+    }
+  ]
+}
