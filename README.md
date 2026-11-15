@@ -16,8 +16,8 @@ soundings verify draft.md                # check any text against the evidence
 ```
 
 ```
-  Soundings 0.0.1  ·  notes-saas  ·  nextjs, react, stripe, supabase-js
-  10 files, 14 detectors, 64 ms. Your code never left this machine.
+  Soundings 0.2.0  ·  notes-saas  ·  nextjs, react, stripe, supabase-js
+  11 files, 15 detectors, 62 ms. Your code never left this machine.
 
   AI providers
    EV-3acc7131  OpenAI  [stated by the code]
@@ -31,7 +31,7 @@ soundings verify draft.md                # check any text against the evidence
 
 ## What it does
 
-- **Scans locally.** No network calls, no telemetry, no upload. It reads JavaScript and TypeScript projects (Next.js, Node/Express, Supabase, Firebase, Stripe and the main AI SDKs) and reports anything else as "couldn't determine".
+- **Scans locally.** No network calls, no telemetry, no upload. It reads JavaScript, TypeScript and Python projects (Next.js, Node/Express, FastAPI, Flask, Django, Supabase, Firebase, Stripe, Azure and the main AI SDKs) and reports anything else as "couldn't determine".
 - **Writes evidence, not code.** `soundings-evidence.json` holds file paths, line numbers and one-sentence claims. It never holds source code or secret values, and the scan fails loudly if a secret would end up in it.
 - **Says how sure it is.** Each fact is stated by the code, inferred, or "not found by the scan". An empty search is never presented as proof.
 - **Asks instead of guessing.** What the code can't show (a hosting region, an account setting at a provider, how long data is kept) becomes a question with a stable ID.
