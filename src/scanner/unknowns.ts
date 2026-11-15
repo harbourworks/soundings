@@ -1,4 +1,5 @@
 import type { FactDraft, UnknownDraft } from "../evidence/build.js";
+import { AI_PROVIDERS } from "./detectors/ai.js";
 
 const slug = (s: string) =>
   s
@@ -29,6 +30,9 @@ export function unknownsFor(all: FactDraft[], unanalysed = false): UnknownDraft[
         { kind: "data_flow", subject },
       ],
     });
+    // A local-model runtime or a router raises its own question: where the server runs, or which vendors it routes to.
+    const extra = AI_PROVIDERS.find((p) => p.subject === subject)?.question;
+    if (extra) add({ ...extra, related: [{ kind: "ai_provider", subject }, { kind: "data_flow", subject }] });
   }
 
   const stores = [...new Set(facts.filter((f) => f.kind === "data_store").map((f) => f.subject))];

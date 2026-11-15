@@ -22,12 +22,16 @@ describe("AI providers", () => {
     ["@ai-sdk/groq", "Groq", `import { groq } from "@ai-sdk/groq";\nexport const m = groq("llama-3.1-8b-instant");\n`],
     ["@aws-sdk/client-bedrock-runtime", "AWS Bedrock", `import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";\nexport const c = new BedrockRuntimeClient({});\n`],
     ["@ai-sdk/amazon-bedrock", "AWS Bedrock", `import { bedrock } from "@ai-sdk/amazon-bedrock";\nexport const m = bedrock("amazon.nova-micro-v1:0");\n`],
+    ["ollama", "Ollama", `import ollama from "ollama";\nexport const c = ollama;\n`],
+    ["ollama", "Ollama", `import { Ollama } from "ollama/browser";\nexport const c = new Ollama({ host: "http://127.0.0.1:11434" });\n`],
+    ["@openrouter/sdk", "OpenRouter", `import { OpenRouter } from "@openrouter/sdk";\nexport const c = new OpenRouter();\n`],
+    ["@openrouter/ai-sdk-provider", "OpenRouter", `import { createOpenRouter } from "@openrouter/ai-sdk-provider";\nexport const p = createOpenRouter({});\n`],
   ];
   for (const [dep, subject, code] of cases) {
-    it(`flags ${subject} when ${dep} is imported`, () => {
+    it(`flags ${subject} when ${dep} is imported (${code.split("\n")[0]})`, () => {
       expect(factsOf({ "package.json": pkg([dep]), "src/ai.ts": code })).toContain(`ai_provider|${subject}|${subjectId(subject)}`);
     });
-    it(`ignores ${subject} (${dep}) named only in a comment, a string or a test`, () => {
+    it(`ignores ${subject} (${dep}) named only in a comment, a string or a test (${code.split("\n")[0]})`, () => {
       const files = {
         "package.json": pkg([dep]),
         "src/ai.ts": `// import X from "${dep}"\nexport const note = "we looked at ${dep}";\n`,
@@ -102,6 +106,8 @@ function subjectId(subject: string): string {
     Cohere: "ai-provider/cohere-sdk",
     Groq: "ai-provider/groq-sdk",
     "AWS Bedrock": "ai-provider/bedrock-sdk",
+    Ollama: "ai-provider/ollama-sdk",
+    OpenRouter: "ai-provider/openrouter",
   }[subject]!;
 }
 
@@ -639,5 +645,83 @@ describe("unknowns", () => {
   it("asks about hosting for a project with no backend signals", () => {
     const e = evidenceOf({ "index.html": "<p>hi</p>" });
     expect(e.unknowns.map((u) => u.id)).toEqual(["UQ-hosting-location"]);
+  });
+});
+
+describe("local models and routers", () => {
+  const flowOf = (dep: string, code: string) => {
+    const facts = evidenceOf({ "package.json": pkg([dep]), "src/ai.ts": code }).facts.filter((f) => f.kind === "data_flow");
+    return facts.map((f) => `${f.subject}|${f.confidence}|${f.locations?.[0]?.line}`);
+  };
+  // The issue's example: request text passed to `ollama.chat`.
+  const ollamaChat = `import ollama from "ollama";\nexport async function summarise(req: Request) {\n  const body = await req.json();\n  return ollama.chat({ model: "llama3", messages: [{ role: "user", content: body.text }] });\n}\n`;
+
+  it("reports Ollama at its import line, without claiming the data stays on the machine", () => {
+    const e = evidenceOf({ "package.json": pkg(["ollama"]), "app/api/summarise/route.ts": `// summaries\n${ollamaChat}` });
+    const f = e.facts.find((x) => x.detector === "ai-provider/ollama-sdk");
+    expect(f?.subject).toBe("Ollama");
+    expect(f?.locations).toEqual([{ file: "app/api/summarise/route.ts", line: 2 }]);
+    expect(f?.attributes).toMatchObject({ sdk: "ollama", runsOn: "server", model: "llama3" });
+    expect(f?.claim).toBe("The app uses the Ollama client library from server code. The scan doesn't read where the Ollama server it talks to runs: it can be this machine or another one.");
+    for (const fact of e.facts.filter((x) => x.subject === "Ollama")) expect(fact.claim).not.toMatch(/\blocal\b|stays|never leaves|not a (third party|subprocessor)/i);
+  });
+
+  it("traces request text into ollama.chat and ollama.generate, and through a client instance", () => {
+    expect(flowOf("ollama", ollamaChat)).toEqual(["Ollama|high|4"]);
+    const generate = `import ollama from "ollama";\nexport function draft(note: string) {\n  return ollama.generate({ model: "llama3", prompt: \`Draft a reply to: \${note}\` });\n}\n`;
+    expect(flowOf("ollama", generate)).toEqual(["Ollama|high|3"]);
+    const client = `import { Ollama } from "ollama";\nconst client = new Ollama({ host: process.env.OLLAMA_HOST });\nexport function ask(q: string) {\n  return client.chat({ model: "m", messages: [{ role: "user", content: q }] });\n}\n`;
+    expect(flowOf("ollama", client)).toEqual(["Ollama|high|4"]);
+    const fixed = `import ollama from "ollama";\nexport const r = ollama.generate({ model: "m", prompt: "Say hello." });\n`;
+    expect(flowOf("ollama", fixed)).toEqual([]);
+  });
+
+  it("reads bare chat and generate calls as Ollama's only in a file that imports Ollama", () => {
+    const openai = `import OpenAI from "openai";\nconst bot = new OpenAI();\nexport function ask(text: string) {\n  return [bot.generate({ prompt: text }), bot.chat({ messages: [{ role: "user", content: text }] })];\n}\n`;
+    expect(flowOf("openai", openai)).toEqual([]);
+    const localFn = `import ollama from "ollama";\nexport const o = ollama;\nfunction generate(x: unknown) { return x; }\nexport function ask(q: string) {\n  return generate({ prompt: q });\n}\n`;
+    expect(flowOf("ollama", localFn)).toEqual([]);
+  });
+
+  it("traces request text through OpenRouter's chat.send and through its AI SDK provider", () => {
+    const send = `import { OpenRouter } from "@openrouter/sdk";\nconst openRouter = new OpenRouter();\nexport function ask(q: string) {\n  return openRouter.chat.send({ chatRequest: { model: "openai/gpt-4o", messages: [{ role: "user", content: q }] } });\n}\n`;
+    expect(flowOf("@openrouter/sdk", send)).toEqual(["OpenRouter|high|4"]);
+    const viaAiSdk = `import { generateText } from "ai";\nimport { openrouter } from "@openrouter/ai-sdk-provider";\nexport function ask(question: string) {\n  return generateText({ model: openrouter("anthropic/claude-3.5-sonnet"), prompt: question });\n}\n`;
+    const e = evidenceOf({ "package.json": pkg(["ai", "@openrouter/ai-sdk-provider"]), "src/ai.ts": viaAiSdk });
+    expect(e.facts.filter((f) => f.kind === "ai_provider").map((f) => f.subject)).toEqual(["OpenRouter"]);
+    expect(e.facts.filter((f) => f.kind === "data_flow").map((f) => `${f.subject}|${f.confidence}`)).toEqual(["OpenRouter|high"]);
+  });
+
+  it("says OpenRouter forwards to vendors the scan doesn't identify", () => {
+    const e = evidenceOf({ "package.json": pkg(["@openrouter/sdk"]), "src/ai.ts": `import { OpenRouter } from "@openrouter/sdk";\nexport const c = new OpenRouter();\n` });
+    expect(e.facts.find((f) => f.detector === "ai-provider/openrouter")?.claim).toBe(
+      "The app uses the OpenRouter SDK from server code. OpenRouter forwards requests to model vendors chosen by model name and its routing settings, which the scan doesn't identify.",
+    );
+  });
+
+  it("asks where the Ollama server runs, and which vendors a router sends to", () => {
+    const ollama = evidenceOf({ "package.json": pkg(["ollama"]), "src/ai.ts": `import ollama from "ollama";\nexport const c = ollama;\n` });
+    expect(ollama.unknowns.map((u) => u.id)).toEqual(["UQ-ollama-data-use", "UQ-ollama-server-location"]);
+    const where = ollama.unknowns.find((u) => u.id === "UQ-ollama-server-location")!;
+    expect(where.question).toBe("Where does the Ollama server that this code calls run (on the same machine, on a server you run, or at a hosting provider), and who operates it?");
+    expect(where.relatedFacts).toEqual(ollama.facts.filter((f) => f.subject === "Ollama").map((f) => f.id));
+    const router = evidenceOf({ "package.json": pkg(["@openrouter/sdk"]), "src/ai.ts": `import { OpenRouter } from "@openrouter/sdk";\nexport const c = new OpenRouter();\n` });
+    expect(router.unknowns.map((u) => u.id)).toEqual(["UQ-openrouter-data-use", "UQ-openrouter-routed-vendors"]);
+    expect(router.unknowns.find((u) => u.id === "UQ-openrouter-routed-vendors")?.question).toBe("Which model vendors does OpenRouter route this app's requests to?");
+  });
+
+  it("raises neither question for a provider that is not a local model or a router", () => {
+    const e = evidenceOf({ "package.json": pkg(["openai"]), "src/ai.ts": `import OpenAI from "openai";\nexport const c = new OpenAI();\n` });
+    expect(e.unknowns.map((u) => u.id)).toEqual(["UQ-openai-data-use"]);
+  });
+
+  it("does not report Ollama from a README, a comment, a string or a test that imports it", () => {
+    const f = factsOf({
+      "package.json": pkg(["ollama", "@openrouter/sdk"]),
+      "README.md": "We may run models with `import ollama from \"ollama\"` one day.\n",
+      "src/options.ts": `// import ollama from "ollama";\nexport const RUNTIMES = ["ollama", "@openrouter/sdk"];\nexport const note = 'ollama.chat({ messages })';\n`,
+      "src/ai.test.ts": ollamaChat,
+    });
+    expect(f.filter((x) => x.startsWith("ai_provider") || x.startsWith("data_flow"))).toEqual([]);
   });
 });

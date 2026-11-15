@@ -62,6 +62,10 @@ describe("python detectors", () => {
     ["langchain-cohere==0.3.0\n", "from langchain_cohere import ChatCohere\nc = ChatCohere()\n", "Cohere", "ai-provider/cohere-sdk", "langchain_cohere"],
     ["groq==0.11.0\n", "from groq import Groq\nc = Groq()\n", "Groq", "ai-provider/groq-sdk", "groq"],
     ["langchain-aws==0.2.0\n", "from langchain_aws import ChatBedrock\nc = ChatBedrock(model_id='m')\n", "AWS Bedrock", "ai-provider/bedrock-sdk", "langchain_aws"],
+    ["ollama==0.4.0\n", "import ollama\nc = ollama.Client()\n", "Ollama", "ai-provider/ollama-sdk", "ollama"],
+    ["langchain-ollama==0.2.0\n", "from langchain_ollama import ChatOllama\nc = ChatOllama(model='llama3')\n", "Ollama", "ai-provider/ollama-sdk", "langchain_ollama"],
+    ["litellm==1.50.0\n", "import litellm\nc = litellm\n", "LiteLLM", "ai-provider/litellm", "litellm"],
+    ["litellm==1.50.0\n", "from litellm import completion\nc = completion\n", "LiteLLM", "ai-provider/litellm", "litellm"],
   ])("flags an import (%#) at its line", (req, code, subject, id, sdk) => {
     const e = evidenceOf({ "requirements.txt": req, "app/a.py": `# set up the client\n${code}` });
     const f = e.facts.find((x) => x.detector === id);
@@ -92,6 +96,45 @@ describe("python detectors", () => {
     const groq = "from groq import Groq\nclient = Groq()\ndef ask(q):\n    return client.chat.completions.create(model='m', messages=[{'role': 'user', 'content': q}])\n";
     expect(flow(groq)).toEqual(["Groq|high|4"]);
     expect(flow(mistral.replace("'content': q", "'content': 'Say hello.'"))).toEqual([]);
+  });
+
+  it("traces request text into Ollama and LiteLLM calls", () => {
+    const flow = (code: string) => evidenceOf({ "a.py": code }).facts.filter((f) => f.kind === "data_flow").map((f) => `${f.subject}|${f.confidence}|${f.locations?.[0]?.line}`);
+    const chat = "import ollama\n\ndef ask(q):\n    return ollama.chat(model='llama3', messages=[{'role': 'user', 'content': q}])\n";
+    expect(flow(chat)).toEqual(["Ollama|high|4"]);
+    expect(flow(chat.replace("ollama.chat(model='llama3', messages=[{'role': 'user', 'content': q}])", "ollama.generate(model='llama3', prompt=f'Summarise: {q}')"))).toEqual(["Ollama|high|4"]);
+    const client = "from ollama import Client\nclient = Client(host='http://10.0.0.5:11434')\ndef ask(q):\n    return client.chat(model='m', messages=[{'role': 'user', 'content': q}])\n";
+    expect(flow(client)).toEqual(["Ollama|high|4"]);
+    const litellm = "import litellm\n\ndef ask(q):\n    return litellm.completion(model='gpt-4o', messages=[{'role': 'user', 'content': q}])\n";
+    expect(flow(litellm)).toEqual(["LiteLLM|high|4"]);
+    expect(flow(litellm.replace("return litellm.completion(", "return await litellm.acompletion(").replace("def ask", "async def ask"))).toEqual(["LiteLLM|high|4"]);
+    expect(flow(chat.replace("'content': q", "'content': 'Say hello.'"))).toEqual([]);
+  });
+
+  it("says LiteLLM and Ollama facts honestly, and asks what the code can't show", () => {
+    const e = evidenceOf({ "a.py": "import litellm\nimport ollama\nx = [litellm, ollama]\n" });
+    expect(e.facts.find((f) => f.subject === "LiteLLM")?.claim).toBe(
+      "The app uses the LiteLLM SDK from server code. LiteLLM sends requests on to model vendors chosen by model name and configuration, which the scan doesn't identify.",
+    );
+    expect(e.facts.find((f) => f.subject === "Ollama")?.claim).toBe(
+      "The app uses the Ollama client library from server code. The scan doesn't read where the Ollama server it talks to runs: it can be this machine or another one.",
+    );
+    expect(e.unknowns.map((u) => u.id)).toEqual(["UQ-litellm-data-use", "UQ-litellm-routed-vendors", "UQ-ollama-data-use", "UQ-ollama-server-location"]);
+  });
+
+  it("ignores Ollama and LiteLLM in comments, docstrings, strings and test files", () => {
+    const decoys = {
+      "requirements.txt": "ollama==0.4.0\nlitellm==1.50.0\n",
+      "app/a.py": '"""import ollama"""\n# import litellm\nNAMES = ["ollama", "litellm", "langchain_ollama"]\nNOTE = "litellm.completion(messages=m)"\n',
+      "tests/test_a.py": "import ollama\nimport litellm\n",
+      "app/test_b.py": "from langchain_ollama import ChatOllama\n",
+    };
+    expect(factsOf(decoys).filter((f) => f.startsWith("ai_provider") || f.startsWith("data_flow"))).toEqual([]);
+  });
+
+  it("reads a bare completion or generate call as LiteLLM's or Ollama's only in a file that imports them", () => {
+    const flow = (code: string) => evidenceOf({ "a.py": code }).facts.filter((f) => f.kind === "data_flow");
+    expect(flow("from openai import OpenAI\nbot = OpenAI()\ndef ask(q):\n    return [bot.completion(messages=[{'role': 'user', 'content': q}]), bot.generate(prompt=q)]\n")).toEqual([]);
   });
 
   it("reads a bare chat call as Cohere's only in a file that imports Cohere", () => {

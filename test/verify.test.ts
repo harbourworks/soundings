@@ -61,7 +61,7 @@ describe("each kind of bad output is rejected", () => {
     const ticketApi = evidence("express-pg");
     const anthropic = idOf(ticketApi, (f) => f.subject === "Anthropic" && f.kind === "ai_provider");
     const bedrockFlow = idOf(ticketApi, (f) => f.subject === "AWS Bedrock" && f.kind === "data_flow");
-    for (const name of ["Mistral", "Cohere", "Groq", "AWS Bedrock", "Bedrock"]) {
+    for (const name of ["Mistral", "Cohere", "Groq", "AWS Bedrock", "Bedrock", "Ollama", "LiteLLM", "OpenRouter"]) {
       expect(codes(`Ticket text is sent to ${name} [${anthropic}].`, ticketApi), name).toContain("entity-not-in-source");
     }
     expect(codes(`Ticket text is sent to Bedrock to rate urgency [${bedrockFlow}].`, ticketApi)).toEqual([]);
