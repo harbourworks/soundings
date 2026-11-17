@@ -39,7 +39,7 @@ soundings verify draft.md                # check any text against the evidence
 - **Answers a standard question bank.** 43 questions on AI use, data, access, keys, logging, suppliers and incident response. Each sentence cites a scan fact or something you said, and the document ends with numbered sources. If your answer and the scan disagree, yours wins and the document notes the difference.
 
 - **Fills in a client's questionnaire.** Rows that clearly match a bank question are answered; everything else is marked and listed, never guessed.
-- **Checks any text.** `soundings verify` fails any statement without a real source that mentions what it claims, so an AI assistant's draft can be trusted only as far as it can be checked.
+- **Checks any text.** `soundings verify` fails a statement whose source is missing or doesn't mention what it claims, and warns on other uncited claims it can spot (with `--strict`, warnings fail too), so an AI assistant's draft can be trusted only as far as it can be checked.
 
 Scanning, questions and verification are free and make no network calls. The answers documents and questionnaire import are Soundings Pro; see [docs/plans.md](docs/plans.md) for exactly what the one licence check sends.
 

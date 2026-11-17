@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { join, resolve } from "node:path";
 import { scan } from "../src/scanner/scan.js";
 import { buildEvidence } from "../src/evidence/build.js";
-import { verifyText, sentencesOf, type IssueCode } from "../src/verify/verify.js";
+import { writeFileSync } from "node:fs";
+import { verifyText, verifyFailed, sentencesOf, type IssueCode } from "../src/verify/verify.js";
+import { renderVerify } from "../src/reporters/verify.js";
+import { run, type CliDeps } from "../src/cli/main.js";
+import { cleanupProjects, project } from "./helpers.js";
 import { emptyAnswers, setAnswer } from "../src/questions/answers-file.js";
 import { answerAll } from "../src/questions/engine.js";
 import { renderQuestionnaireMarkdown } from "../src/export/questionnaire.js";
@@ -23,6 +27,11 @@ const staticEv = evidence("static-site");
 let answers = setAnswer(emptyAnswers(), "UQ-supabase-region", "London (eu-west-2)", NOW);
 answers = setAnswer(answers, "profile.log-retention", "Logs are kept for 90 days.", NOW);
 answers = setAnswer(answers, "profile.certifications", "We hold ISO 27001 certification.", NOW);
+
+cleanupProjects();
+
+/** Warnings about the sentences themselves (the draft notice is always present here). */
+const warnings = (text: string, ev = notes, a = answers): IssueCode[] => verifyText(`${DRAFT_NOTICE}\n\n${text}`, ev, a).issues.filter((i) => i.severity === "warning").map((i) => i.code);
 
 const codes = (text: string, ev = notes, a = answers): IssueCode[] => verifyText(`${DRAFT_NOTICE}\n\n${text}`, ev, a).issues.filter((i) => i.severity === "error").map((i) => i.code);
 
@@ -162,5 +171,150 @@ describe("sentence splitting", () => {
   it("keeps abbreviations and decimals together and drops questions", () => {
     const { sentences } = sentencesOf("We store e.g. notes and version 2.5 data [A-001]. Do you use AI? Yes we do.");
     expect(sentences.map((s) => s.text)).toEqual(["We store e.g. notes and version 2.5 data [A-001].", "Yes we do."]);
+  });
+});
+
+describe("uncited statements beyond the built-in vendor list (recorded bad outputs)", () => {
+  // From a field-test draft: each of these passed --strict with no message before.
+  const ISSUE_DRAFT = [
+    "Payments are handled by PayPal.",
+    "Call audio is transcribed by Deepgram.",
+    "No user content is ever sent to an AI provider.",
+    "Customer records are stored in Snowflake.",
+  ];
+
+  it.each(ISSUE_DRAFT)("flags %j as an uncited statement, as a warning", (sentence) => {
+    const r = verifyText(`${DRAFT_NOTICE}\n\n${sentence}`, notes, answers);
+    expect(r.issues.map((i) => [i.severity, i.code])).toEqual([["warning", "unreferenced-statement"]]);
+    expect(r.ok).toBe(true);
+    expect(verifyFailed(r, true)).toBe(true);
+    expect(verifyFailed(r, false)).toBe(false);
+  });
+
+  it("names the vendor it could not find in the evidence", () => {
+    const [issue] = verifyText(`${DRAFT_NOTICE}\n\nPayments are handled by PayPal.`, notes, answers).issues;
+    expect(issue!.message).toContain('"PayPal"');
+    const [neg] = verifyText(`${DRAFT_NOTICE}\n\nNo user content is ever sent to an AI provider.`, notes, answers).issues;
+    expect(neg!.message).toMatch(/never|absent|not done/i);
+  });
+
+  it("flags the whole issue draft line by line", () => {
+    const text = `Draft, not legal advice.\n\nThe app uses the OpenAI SDK [${openai}].\n${ISSUE_DRAFT.join("\n")}\nThe app stores customer records in Snowflake.\n`;
+    const r = verifyText(text, notes, answers);
+    expect(r.issues.map((i) => [i.line, i.severity, i.code])).toEqual([4, 5, 6, 7, 8].map((l) => [l, "warning", "unreferenced-statement"]));
+  });
+
+  it("catches other negative claims about data and other vendor positions", () => {
+    for (const s of [
+      "Personal data is never shared with third parties.",
+      "Nothing is logged.",
+      "Prompts are not stored after the request.",
+      "Files are uploaded without being collected for training.",
+      "None of the transcripts are transmitted outside the region.",
+      "Error reports are sent to Rollbar.",
+      "Accounts are managed with Okta Workforce.",
+      "Usage events are stored in Amazon Redshift.",
+      'Payments are handled by "PayPal".',
+      "User content isn't stored anywhere.",
+      "Audio files aren\u2019t sent to any third party.",
+      "Prompts won't be logged.",
+      "Data is NEVER sent to an AI provider.",
+      "No personal data leaves the server.",
+      "Images are processed by Cloudinary's API.",
+    ]) expect(warnings(s), s).toEqual(["unreferenced-statement"]);
+  });
+
+  it("keeps the existing errors for the built-in vendors, numbers and places", () => {
+    expect(codes("Payments are handled by Stripe.")).toEqual(["missing-reference"]);
+    expect(codes("No data is ever sent to OpenAI.")).toEqual(["missing-reference"]);
+    expect(codes("No backups are stored in Ireland.")).toEqual(["missing-reference"]);
+  });
+});
+
+describe("decoys the new checks must leave alone", () => {
+  it("headings and questions", () => {
+    expect(warnings("## Payments handled by PayPal\n\n### No data is sent to Snowflake\n\nAre payments handled by PayPal?\n\nIs any user content ever sent to an AI provider?")).toEqual([]);
+  });
+
+  it("sentences that already cite a source", () => {
+    expect(codes(`Summaries are generated by OpenAI [${openai}].`)).toEqual([]);
+    expect(warnings(`Summaries are generated by OpenAI [${openai}].`)).toEqual([]);
+    expect(warnings("Payments are handled by PayPal [A-001].")).toEqual([]);
+    expect(warnings(`No user content is ever stored in the logs, according to [${logging}].`)).not.toContain("unreferenced-statement");
+  });
+
+  it("a name that is in the evidence", () => {
+    const api = evidence("express-pg");
+    expect(warnings("Sessions are signed with JSON Web Tokens.", api)).toEqual([]);
+    expect(warnings("Requests are written to Server logs.", api)).toEqual([]);
+  });
+
+  it("capitals at the start of a sentence", () => {
+    expect(warnings("Overview.\n\nHowever, this section is a summary.\n\nEverything below comes from the scan.\n\nSecurity is a shared job.")).toEqual([]);
+  });
+
+  it("product, document and format names that aren't vendors", () => {
+    for (const s of [
+      "Draft, not legal advice.",
+      "Soundings by Dynamo.",
+      "This draft was written by Soundings.",
+      "Findings come from Seaworthy.",
+      "The answers can be exported to Word.",
+      "Save the evidence in JSON and the report in Markdown.",
+      "The steps are described in Section 4 of the guide.",
+      "Reviews happen in January.",
+    ]) expect(warnings(s), s).toEqual([]);
+  });
+
+  it("ordinary prose with no data claim", () => {
+    for (const s of [
+      "This is not a complete list of every risk.",
+      "Good security practice starts with knowing what your software does.",
+      "No document can replace a careful review.",
+      "Nothing here is legal advice.",
+      "Read it with your own lawyer in mind.",
+    ]) expect(warnings(s), s).toEqual([]);
+  });
+});
+
+describe("the summary line follows the exit code", () => {
+  const draft = `${DRAFT_NOTICE}\n\nPayments are handled by PayPal.`;
+  const plain = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+
+  it("says Failed under --strict when there are only warnings", () => {
+    const out = plain(renderVerify(verifyText(draft, notes, answers), "draft.md", { strict: true }));
+    expect(out).toContain("Failed: 1 warning, counted as a failure with --strict.");
+    expect(out).not.toContain("Passed.");
+    expect(out).not.toContain("Every statement points to a source");
+  });
+
+  it("says Passed with the warning count without --strict", () => {
+    const out = plain(renderVerify(verifyText(draft, notes, answers), "draft.md"));
+    expect(out).toContain("Passed. 1 sentences checked, 0 with references. 1 warning.");
+    expect(out).toContain("Every statement points to a source");
+  });
+
+  it("the CLI exit codes are unchanged: 1 with --strict, 0 without", async () => {
+    const cwd = project({});
+    writeFileSync(`${cwd}/draft.md`, draft);
+    writeFileSync(`${cwd}/soundings-evidence.json`, JSON.stringify(notes));
+    const go = async (args: string[]) => {
+      const out: string[] = [];
+      const deps: CliDeps = { out: (s) => out.push(s), err: (s) => out.push(s), env: {}, cwd, now: () => NOW };
+      return { code: await run(args, deps), text: plain(out.join("\n")) };
+    };
+    const strict = await go(["verify", "draft.md", "--strict"]);
+    expect(strict.code).toBe(1);
+    expect(strict.text).toContain("Failed");
+    expect(strict.text).not.toContain("Passed.");
+    const lax = await go(["verify", "draft.md"]);
+    expect(lax.code).toBe(0);
+    expect(lax.text).toContain("Passed.");
+    writeFileSync(`${cwd}/draft.md`, `${draft}\n\nWe use Stripe to take payments.`);
+    for (const args of [["verify", "draft.md"], ["verify", "draft.md", "--strict"]]) {
+      const errs = await go(args);
+      expect(errs.code, args.join(" ")).toBe(1);
+      expect(errs.text).toContain("Failed: 1 problem.");
+    }
   });
 });

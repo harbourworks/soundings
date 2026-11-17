@@ -25,13 +25,16 @@ Each sentence about the project must point to a source, written `[EV-3acc7131]` 
 | `low-confidence-fact` | A sentence cites a low-confidence fact. Those stay out of documents until you confirm them |
 | `overclaim` | Wording that implies legal assurance: "compliant", "certified", "guaranteed", "fully secure" |
 
-Warnings, which don't fail the run unless you use `--strict`: a sentence that sounds like a statement about your project but cites nothing (`unreferenced-statement`), and a document with no draft notice (`missing-notice`).
+Warnings, which don't fail the run unless you use `--strict` (the summary then says `Failed`):
+
+- `unreferenced-statement`: a sentence that cites nothing but reads as a claim about your project. That is one that talks about "we", "our" or "the app"; one that puts a capitalised name the evidence doesn't mention where a vendor would go ("handled by PayPal", "stored in Snowflake", "sent to X", "with X"); or one that pairs a negative ("no", "never", "not", "none", "without", "nothing", "isn't" and the like) with sending, sharing, storing, logging, transmitting, collecting, uploading, retaining, selling or "leaves" ("No user content is ever sent to an AI provider").
+- `missing-notice`: a document with no draft notice.
 
 You can state your own certifications. A sentence that cites one of your answers isn't flagged for wording like "certified", because it is your statement and is attributed to you.
 
 ## What it does not check
 
-It can prove a sentence is **unsupported**. It cannot prove one is **true**. Passing means every statement points to a source that exists and mentions what the sentence mentions. It doesn't mean the source is right, or that a sentence says what its source means. It also can't catch a claim that names nothing it recognises. It knows the services Soundings detects and the usual cloud and SaaS names, so a vendor outside that list is checked only if it appears in your evidence.
+It can prove a sentence is **unsupported**. It cannot prove one is **true**. Passing means every statement points to a source that exists and mentions what the sentence mentions. It doesn't mean the source is right, or that a sentence says what its source means. It knows the services Soundings detects and the usual cloud and SaaS names, and an uncited sentence naming one of those is an error. A vendor outside that list is only a warning, and only when it is capitalised and comes straight after "by", "in", "to" or "with". A claim that names nothing it recognises and fits none of the patterns above passes unnoticed.
 
 It skips headings, questions, code blocks, the sources list and "Needs your input" prompts.
 

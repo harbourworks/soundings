@@ -52,6 +52,15 @@ const NUMBERS = /(?<![\w.-])\d+(?:[.,]\d+)?(?![\w-])/g;
 const ABSENCE = /\b(no|not|never|without|none|neither|nor|doesn't|does not|do not|don't|isn't|aren't|cannot|can't|nothing)\b/i;
 const QUALIFIER = /\b(inferred|appears?|appeared|suggests?|may|might|likely|probably|not confirmed|possibly)\b/i;
 export const OVERCLAIM =/\b(compliant|certified|guarantee[sd]?|guaranteeing|fully secure|100% secure|bank-grade|military-grade|complies with|meets the requirements of)\b/i;
+/** A sweeping negative ("never", "no … is sent") about what happens to data. */
+const NEGATION = /\b(never|no|none|not|without|nothing|cannot)\b|\b\w+n['’]t\b/i;
+const DATA_VERB = /\b(send|sends|sent|sending|share|shares|shared|sharing|store|stores|stored|storing|logged|logging|transmit|transmits|transmitted|transmitting|collect|collects|collected|collecting|upload|uploads|uploaded|retain|retains|retained|sold|leaves)\b/i;
+/** A capitalised name where a vendor would sit: "handled by X", "stored in X", "sent to X", "signed in with X". */
+const VENDOR_POSITION = /\b(?:by|in|to|with)\s+["'“‘(]?([A-Z][\w.&-]*(?:\s+[A-Z][\w.&-]*)*)/g;
+/** Capitalised words that are not vendors: our own names, formats, document parts, months and days. */
+const NOT_VENDORS = new Set(
+  "soundings seaworthy dynamo markdown html json csv pdf word docx xlsx yaml section table appendix part figure article chapter page step the this that these those a an our your their its it january february march april may june july august september october november december monday tuesday wednesday thursday friday saturday sunday english".split(" "),
+);
 const PROJECT_LANGUAGE = /\b(we|our|ours|the (?:app|application|system|service|platform|product|project|code|codebase)|this (?:app|application|system|service|platform|product))\b/i;
 
 interface Block {
@@ -130,6 +139,7 @@ export function verifyText(source: string, evidence: EvidenceFile, answers: Answ
   const texts = sourceTexts(evidence, answers);
   const facts = new Map(evidence.facts.map((f) => [f.id, f]));
   const subjectNames = evidence.facts.filter((f) => f.claimType === "observed").map((f) => f.subject);
+  const evidenceText = lower(evidence.facts.map((f) => texts.get(f.id) ?? "").join(" "));
   const { sentences, noticePresent } = sentencesOf(source);
   let withRefs = 0;
 
@@ -148,9 +158,14 @@ export function verifyText(source: string, evidence: EvidenceFile, answers: Answ
     }
 
     if (refs.length === 0) {
+      const vendor = unlistedVendor(body, evidenceText);
       if (mentioned.length > 0 || numbers.length > 0 || places.length > 0) {
         const what = [...mentioned, ...numbers, ...places].slice(0, 3).join(", ");
         add("error", "missing-reference", b, `States something specific (${what}) with no evidence or answer reference.`);
+      } else if (vendor) {
+        add("warning", "unreferenced-statement", b, `Names "${vendor}" as part of how the project works, but cites no source and the evidence doesn't mention "${vendor}".`);
+      } else if (NEGATION.test(body) && DATA_VERB.test(body)) {
+        add("warning", "unreferenced-statement", b, "Says something is not done with data (sent, shared, stored, logged or collected) but cites no source. A claim that something does not happen needs a source too.");
       } else if (PROJECT_LANGUAGE.test(body)) {
         add("warning", "unreferenced-statement", b, "Reads as a statement about the project but cites no source.");
       }
@@ -210,4 +225,19 @@ export function verifyText(source: string, evidence: EvidenceFile, answers: Answ
     noticePresent,
     ok: !issues.some((i) => i.severity === "error"),
   };
+}
+
+/** The one decision behind both the exit code and the summary line: errors fail, and with `--strict` so do warnings. */
+export function verifyFailed(report: VerifyReport, strict: boolean): boolean {
+  return !report.ok || (strict && report.issues.length > 0);
+}
+
+/** The first capitalised name in a vendor position that the evidence never mentions. */
+function unlistedVendor(body: string, evidenceText: string): string | undefined {
+  for (const m of body.matchAll(VENDOR_POSITION)) {
+    const name = m[1]!.replace(/["'”’)]?[.,;:]*$/, "");
+    if (NOT_VENDORS.has(name.split(/\s+/)[0]!.toLowerCase())) continue;
+    if (!evidenceText.includes(name.toLowerCase())) return name;
+  }
+  return undefined;
 }
