@@ -260,6 +260,52 @@ describe("data flow to AI providers", () => {
     const f = flow({ "ai.ts": `${head}export const r = client.chat.completions.create({ model: "m", messages: [{ role: "user", content: "Say hello." }] });\n` });
     expect(f).toBeUndefined();
   });
+
+  describe("structured-output and image calls", () => {
+    const flowAt = (body: string) => {
+      const f = flow({ "ai.ts": `${head}export function ask(userText: string) {\n  return ${body};\n}\n` });
+      return f ? { subject: f.subject, confidence: f.confidence, line: f.locations[0]?.line } : undefined;
+    };
+    const high = { subject: "OpenAI", confidence: "high", line: 4 };
+
+    it("flags a function parameter sent through responses.parse", () => {
+      expect(flowAt(`client.responses.parse({ model: "m", input: [{ role: "user", content: userText }] })`)).toEqual(high);
+    });
+
+    it("flags a function parameter sent through chat.completions.parse", () => {
+      expect(flowAt(`client.chat.completions.parse({ model: "m", messages: [{ role: "user", content: userText }] })`)).toEqual(high);
+    });
+
+    it("flags a function parameter sent through beta.chat.completions.parse", () => {
+      expect(flowAt(`client.beta.chat.completions.parse({ model: "m", messages: [{ role: "user", content: userText }] })`)).toEqual(high);
+    });
+
+    it("flags a function parameter sent through images.generate", () => {
+      expect(flowAt(`client.images.generate({ model: "m", prompt: userText })`)).toEqual(high);
+    });
+
+    it("flags a function parameter sent through images.edit", () => {
+      expect(flowAt(`client.images.edit({ model: "m", image: "in.png", prompt: \`Make it brighter: \${userText}\` })`)).toEqual(high);
+    });
+
+    it("ignores images.generate with a fixed prompt", () => {
+      expect(flowAt(`client.images.generate({ model: "m", prompt: "a cat" })`)).toBeUndefined();
+    });
+
+    it("ignores responses.parse with a fixed input", () => {
+      expect(flowAt(`client.responses.parse({ model: "m", input: "Suggest a name for a notebook." })`)).toBeUndefined();
+      expect(flowAt(`client.responses.parse({ model: "m", input: [{ role: "user", content: "Suggest a name." }] })`)).toBeUndefined();
+    });
+
+    it("ignores images.edit and chat.completions.parse with fixed prompts", () => {
+      expect(flowAt(`client.images.edit({ model: "m", image: "in.png", prompt: "Make it brighter." })`)).toBeUndefined();
+      expect(flowAt(`client.chat.completions.parse({ model: "m", messages: [{ role: "user", content: "Say hello." }] })`)).toBeUndefined();
+    });
+
+    it("does not take a parse or generate call on an unrelated object for a model call", () => {
+      expect(flowAt(`[JSON.parse(userText), schema.parse(userText), images.generate(userText)]`)).toBeUndefined();
+    });
+  });
 });
 
 describe("third-party services", () => {

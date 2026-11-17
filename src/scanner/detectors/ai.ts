@@ -160,7 +160,11 @@ function aiProviderDetector(spec: ProviderSpec): Detector {
 const AI_CALL_TAILS: string[][] = [
   ["chat", "completions", "create"],
   ["chat", "completions", "stream"],
+  ["chat", "completions", "parse"],
   ["responses", "create"],
+  ["responses", "parse"],
+  ["images", "generate"],
+  ["images", "edit"],
   ["completions", "create"],
   ["embeddings", "create"],
   ["messages", "create"],

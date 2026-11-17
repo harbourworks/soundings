@@ -18,7 +18,10 @@
       "detector": "ai-provider/openai-sdk",
       "key": "app/api/summarise/route.ts",
       "files": [
-        "app/api/summarise/route.ts"
+        "app/api/summarise/route.ts",
+        "lib/cover-image.ts",
+        "lib/note-tags.ts",
+        "lib/sample-content.ts"
       ],
       "confidence": "high"
     },
@@ -28,7 +31,9 @@
       "detector": "data-flow/ai-request-payload",
       "key": "app/api/summarise/route.ts",
       "files": [
-        "app/api/summarise/route.ts"
+        "app/api/summarise/route.ts",
+        "lib/cover-image.ts",
+        "lib/note-tags.ts"
       ],
       "confidence": "high"
     },
