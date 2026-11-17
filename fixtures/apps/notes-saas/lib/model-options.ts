@@ -2,3 +2,5 @@
 // import Groq from "groq-sdk";
 export const EVALUATED_SDKS = ["groq-sdk", "@mistralai/mistralai"];
 export const NOTE = 'Switching would mean `import { Mistral } from "@mistralai/mistralai"`, which we have not done.';
+// Also considered: a self-hosted model through ollama, or a router such as @openrouter/sdk.
+export const MAYBE_LATER = ["ollama", "@openrouter/sdk"];

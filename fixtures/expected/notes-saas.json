@@ -167,6 +167,41 @@
       "file": "lib/supabase.ts",
       "contains": "NEXT_PUBLIC_SUPABASE_ANON_KEY",
       "why": "The anon key is public by design; row-level security protects the data. It is not an exposed secret."
+    },
+    {
+      "kind": "ai_provider",
+      "subject": "Ollama",
+      "file": "lib/local-model.test.ts",
+      "contains": "from \"ollama\"",
+      "why": "Imported only in a .test.ts spike that the app never calls."
+    },
+    {
+      "kind": "data_flow",
+      "subject": "Ollama",
+      "file": "lib/local-model.test.ts",
+      "contains": "ollama.chat",
+      "why": "A model call in a test file is not something the product does."
+    },
+    {
+      "kind": "ai_provider",
+      "subject": "Ollama",
+      "file": "docs/ROADMAP.md",
+      "contains": "Ollama",
+      "why": "Named in a roadmap note as something clients asked for; not started."
+    },
+    {
+      "kind": "ai_provider",
+      "subject": "Ollama",
+      "file": "lib/model-options.ts",
+      "contains": "\"ollama\"",
+      "why": "Named only in a comment and a string list of options considered."
+    },
+    {
+      "kind": "ai_provider",
+      "subject": "OpenRouter",
+      "file": "lib/model-options.ts",
+      "contains": "\"@openrouter/sdk\"",
+      "why": "Named only in a comment and a string list; nothing imports it."
     }
   ]
 }

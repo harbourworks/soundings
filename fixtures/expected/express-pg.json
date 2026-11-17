@@ -168,6 +168,46 @@
         "src/ai.ts"
       ],
       "confidence": "medium"
+    },
+    {
+      "kind": "ai_provider",
+      "subject": "Ollama",
+      "detector": "ai-provider/ollama-sdk",
+      "key": "src/models/ollama.ts",
+      "files": [
+        "src/models/ollama.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "data_flow",
+      "subject": "Ollama",
+      "detector": "data-flow/ai-request-payload",
+      "key": "src/models/ollama.ts",
+      "files": [
+        "src/models/ollama.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "ai_provider",
+      "subject": "OpenRouter",
+      "detector": "ai-provider/openrouter",
+      "key": "src/models/openrouter.ts",
+      "files": [
+        "src/models/openrouter.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "data_flow",
+      "subject": "OpenRouter",
+      "detector": "data-flow/ai-request-payload",
+      "key": "src/models/openrouter.ts",
+      "files": [
+        "src/models/openrouter.ts"
+      ],
+      "confidence": "high"
     }
   ],
   "unknowns": [
@@ -176,6 +216,10 @@
     "cohere-data-use",
     "groq-data-use",
     "mistral-data-use",
+    "ollama-data-use",
+    "ollama-server-location",
+    "openrouter-data-use",
+    "openrouter-routed-vendors",
     "postgresql-hosting",
     "retention-deletion"
   ],

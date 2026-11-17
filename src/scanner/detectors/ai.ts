@@ -20,7 +20,20 @@ interface ProviderSpec {
   calls?: { js?: string[][]; py?: string[][] };
   /** Command classes whose constructor takes the prompt: `new ConverseCommand({ messages })`. */
   commands?: string[];
+  /** What the claim calls the package. Defaults to "SDK". */
+  library?: string;
+  /** A sentence added to the claim when the code alone can't say where the data goes. */
+  caveat?: string;
+  /** A question this provider raises besides its data-use one, linked to its facts. */
+  question?: { key: string; topic: string; question: string; why: string };
 }
+
+const routerQuestion = (subject: string): ProviderSpec["question"] => ({
+  key: `${subject.toLowerCase()}-routed-vendors`,
+  topic: "AI routing",
+  question: `Which model vendors does ${subject} route this app's requests to?`,
+  why: `${subject} picks the vendor from model names and configuration, so the scan can't tell which vendors receive the data.`,
+});
 
 export const AI_PROVIDERS: ProviderSpec[] = [
   { id: "ai-provider/openai-sdk", subject: "OpenAI", packages: ["openai", "@ai-sdk/openai"], pyModules: ["openai", "langchain_openai"] },
@@ -42,8 +55,44 @@ export const AI_PROVIDERS: ProviderSpec[] = [
     pyModules: ["langchain_aws"],
     commands: ["ConverseCommand", "ConverseStreamCommand"],
   },
+  {
+    id: "ai-provider/ollama-sdk",
+    subject: "Ollama",
+    packages: ["ollama"],
+    pyModules: ["ollama", "langchain_ollama"],
+    calls: { js: [["chat"], ["generate"]], py: [["chat"], ["generate"]] },
+    library: "client library",
+    // Ollama's server can run on this machine or anywhere else, so the claim never says the data stays local.
+    caveat: "The scan doesn't read where the Ollama server it talks to runs: it can be this machine or another one.",
+    question: {
+      key: "ollama-server-location",
+      topic: "AI model hosting",
+      question: "Where does the Ollama server that this code calls run (on the same machine, on a server you run, or at a hosting provider), and who operates it?",
+      why: "The scan doesn't read the server's address, and an address alone doesn't show who runs the server.",
+    },
+  },
+  {
+    id: "ai-provider/litellm",
+    subject: "LiteLLM",
+    packages: [],
+    pyModules: ["litellm"],
+    calls: { py: [["completion"], ["acompletion"]] },
+    caveat: "LiteLLM sends requests on to model vendors chosen by model name and configuration, which the scan doesn't identify.",
+    question: routerQuestion("LiteLLM"),
+  },
+  {
+    id: "ai-provider/openrouter",
+    subject: "OpenRouter",
+    packages: ["@openrouter/sdk", "@openrouter/ai-sdk-provider"],
+    pyModules: [],
+    calls: { js: [["chat", "send"]] },
+    caveat: "OpenRouter forwards requests to model vendors chosen by model name and its routing settings, which the scan doesn't identify.",
+    question: routerQuestion("OpenRouter"),
+  },
   { id: "ai-provider/vercel-ai-sdk", subject: "Vercel AI SDK", packages: ["ai"], pyModules: [] },
 ];
+
+const withCaveat = (spec: ProviderSpec, claim: string) => (spec.caveat ? `${claim} ${spec.caveat}` : claim);
 
 /** The provider(s) a file uses. A file using a named provider plus the Vercel SDK reports only the named provider. */
 function providersIn(f: JsFile): ProviderSpec[] {
@@ -60,6 +109,7 @@ function runsOn(f: JsFile): "browser" | "server" | "unclear" {
 }
 
 function aiProviderDetector(spec: ProviderSpec): Detector {
+  const library = spec.library ?? "SDK";
   return {
     id: spec.id,
     skipReason: (ctx) => (ctx.hasDep(...spec.packages) || (spec.pyModules.length > 0 && ctx.hasPyImport(...spec.pyModules)) ? null : `no ${spec.subject} package in dependencies`),
@@ -72,7 +122,7 @@ function aiProviderDetector(spec: ProviderSpec): Detector {
           return {
             kind: "ai_provider",
             subject: spec.subject,
-            claim: `The app uses the ${spec.subject} SDK from server code.`,
+            claim: withCaveat(spec, `The app uses the ${spec.subject} ${library} from server code.`),
             attributes: { sdk: imp?.module ?? spec.pyModules[0]!, runsOn: "server", ...(model ? { model } : {}) },
             confidence: "high",
             detector: spec.id,
@@ -89,10 +139,12 @@ function aiProviderDetector(spec: ProviderSpec): Detector {
           return {
             kind: "ai_provider",
             subject: spec.subject,
-            claim:
+            claim: withCaveat(
+              spec,
               where === "browser"
-                ? `The browser code imports the ${spec.subject} SDK.`
-                : `The app uses the ${spec.subject} SDK${where === "server" ? " from server code" : ""}.`,
+                ? `The browser code imports the ${spec.subject} ${library}.`
+                : `The app uses the ${spec.subject} ${library}${where === "server" ? " from server code" : ""}.`,
+            ),
             attributes: { sdk: imp?.source ?? spec.packages[0]!, runsOn: where, ...(model ? { model } : {}) },
             confidence: "high",
             detector: spec.id,
