@@ -2,6 +2,13 @@
 
 All notable changes to soundings-cli. Versions follow [semantic versioning](https://semver.org); while it's 0.x, a minor version can change behaviour.
 
+## 0.2.1 (17 November 2026)
+
+Prompts sent through renamed imports are now traced.
+
+- **Aliased AI SDK calls and Bedrock commands** are traced as prompts sent to a model. `import { generateText as gt } from "ai"` makes `gt(…)` a model call, and `import { ConverseCommand as Conv } from "@aws-sdk/client-bedrock-runtime"` makes `new Conv(…)` one. Before, the provider was reported but the data sent to it was not. A renamed name counts only when it is imported from that SDK's own module and nothing in the surrounding code re-binds it (a parameter, a local variable, a function, a class or a `catch` parameter). A name that only looks like an AI function because of its alias, such as `import { tool as generateText } from "ai"`, is no longer counted as a model call. Aliases through `require` and names re-exported from another file are not followed yet.
+- The README now says the scanner reads Python as well as JavaScript and TypeScript, and its sample report matches the current output.
+
 ## 0.2.0 (14 November 2026)
 
 More AI providers and two ORMs recognised, so fewer projects come back as "No AI provider found" or "No database found" when the code says otherwise.
