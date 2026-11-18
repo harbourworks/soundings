@@ -54,7 +54,8 @@ const QUALIFIER = /\b(inferred|appears?|appeared|suggests?|may|might|likely|prob
 export const OVERCLAIM =/\b(compliant|certified|guarantee[sd]?|guaranteeing|fully secure|100% secure|bank-grade|military-grade|complies with|meets the requirements of)\b/i;
 /** A sweeping negative ("never", "no … is sent") about what happens to data. */
 const NEGATION = /\b(never|no|none|not|without|nothing|cannot)\b|\b\w+n['’]t\b/i;
-const DATA_VERB = /\b(send|sends|sent|sending|share|shares|shared|sharing|store|stores|stored|storing|logged|logging|transmit|transmits|transmitted|transmitting|collect|collects|collected|collecting|upload|uploads|uploaded|retain|retains|retained|sold|leaves)\b/i;
+/** Each verb in base, -s, past and -ing form. docs/verify.md lists the base forms in this order. */
+const DATA_VERB = /\b(send|sends|sent|sending|share|shares|shared|sharing|store|stores|stored|storing|log|logs|logged|logging|transmit|transmits|transmitted|transmitting|collect|collects|collected|collecting|upload|uploads|uploaded|uploading|retain|retains|retained|retaining|sell|sells|sold|selling|leave|leaves|left|leaving)\b/i;
 /** A capitalised name where a vendor would sit: "handled by X", "stored in X", "sent to X", "signed in with X". */
 const VENDOR_POSITION = /\b(?:by|in|to|with)\s+["'“‘(]?([A-Z][\w.&-]*(?:\s+[A-Z][\w.&-]*)*)/g;
 /** Capitalised words that are not vendors: our own names, formats, document parts, months and days. */
@@ -165,7 +166,7 @@ export function verifyText(source: string, evidence: EvidenceFile, answers: Answ
       } else if (vendor) {
         add("warning", "unreferenced-statement", b, `Names "${vendor}" as part of how the project works, but cites no source and the evidence doesn't mention "${vendor}".`);
       } else if (NEGATION.test(body) && DATA_VERB.test(body)) {
-        add("warning", "unreferenced-statement", b, "Says something is not done with data (sent, shared, stored, logged or collected) but cites no source. A claim that something does not happen needs a source too.");
+        add("warning", "unreferenced-statement", b, "Says something is not done with data (sent, shared, stored, logged, collected, sold and the like) but cites no source. A claim that something does not happen needs a source too.");
       } else if (PROJECT_LANGUAGE.test(body)) {
         add("warning", "unreferenced-statement", b, "Reads as a statement about the project but cites no source.");
       }

@@ -27,7 +27,7 @@ Each sentence about the project must point to a source, written `[EV-3acc7131]` 
 
 Warnings, which don't fail the run unless you use `--strict` (the summary then says `Failed`):
 
-- `unreferenced-statement`: a sentence that cites nothing but reads as a claim about your project. That is one that talks about "we", "our" or "the app"; one that puts a capitalised name the evidence doesn't mention where a vendor would go ("handled by PayPal", "stored in Snowflake", "sent to X", "with X"); or one that pairs a negative ("no", "never", "not", "none", "without", "nothing", "isn't" and the like) with sending, sharing, storing, logging, transmitting, collecting, uploading, retaining, selling or "leaves" ("No user content is ever sent to an AI provider").
+- `unreferenced-statement`: a sentence that cites nothing but reads as a claim about your project. That is one that talks about "we", "our" or "the app"; one that puts a capitalised name the evidence doesn't mention where a vendor would go ("handled by PayPal", "stored in Snowflake", "sent to X", "with X"); or one that pairs a negative ("no", "never", "not", "none", "without", "nothing", "isn't" and the like) with one of the verbs send, share, store, log, transmit, collect, upload, retain, sell or leave, in any form ("sends", "sent", "sending" and so on: "No user content is ever sent to an AI provider", "We do not sell personal data").
 - `missing-notice`: a document with no draft notice.
 
 You can state your own certifications. A sentence that cites one of your answers isn't flagged for wording like "certified", because it is your statement and is attributed to you.

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { join, resolve } from "node:path";
 import { scan } from "../src/scanner/scan.js";
 import { buildEvidence } from "../src/evidence/build.js";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { verifyText, verifyFailed, sentencesOf, type IssueCode } from "../src/verify/verify.js";
 import { renderVerify } from "../src/reporters/verify.js";
 import { run, type CliDeps } from "../src/cli/main.js";
@@ -222,6 +222,40 @@ describe("uncited statements beyond the built-in vendor list (recorded bad outpu
       "No personal data leaves the server.",
       "Images are processed by Cloudinary's API.",
     ]) expect(warnings(s), s).toEqual(["unreferenced-statement"]);
+  });
+
+  it("catches every form of each data verb the docs list (recorded bad outputs)", () => {
+    // From the gatekeeper review: these three passed --strict with only the missing-notice warning.
+    for (const s of [
+      "The company does not sell personal data.",
+      "The server does not log prompts.",
+      "Personal data does not leave the server.",
+    ]) expect(warnings(s), s).toEqual(["unreferenced-statement"]);
+
+    const forms: Record<string, string[]> = {
+      send: ["send", "sends", "sent", "sending"],
+      share: ["share", "shares", "shared", "sharing"],
+      store: ["store", "stores", "stored", "storing"],
+      log: ["log", "logs", "logged", "logging"],
+      transmit: ["transmit", "transmits", "transmitted", "transmitting"],
+      collect: ["collect", "collects", "collected", "collecting"],
+      upload: ["upload", "uploads", "uploaded", "uploading"],
+      retain: ["retain", "retains", "retained", "retaining"],
+      sell: ["sell", "sells", "sold", "selling"],
+      leave: ["leave", "leaves", "left", "leaving"],
+    };
+    for (const [verb, list] of Object.entries(forms)) {
+      for (const f of list) {
+        const s = `Personal data is never ${f} here.`;
+        expect(warnings(s), `${verb}: ${s}`).toEqual(["unreferenced-statement"]);
+      }
+    }
+
+    // docs/verify.md must list exactly these verbs, in this order.
+    const doc = readFileSync(resolve(__dirname, "../docs/verify.md"), "utf8");
+    const listed = doc.match(/with one of the verbs ([a-z, ]+) or ([a-z]+), in any form/);
+    expect(listed, "verb list in docs/verify.md").not.toBeNull();
+    expect([...listed![1]!.split(", "), listed![2]]).toEqual(Object.keys(forms));
   });
 
   it("keeps the existing errors for the built-in vendors, numbers and places", () => {
