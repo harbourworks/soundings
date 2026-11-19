@@ -1,8 +1,8 @@
 import pc from "picocolors";
-import type { VerifyReport } from "../verify/verify.js";
+import { verifyFailed, type VerifyReport } from "../verify/verify.js";
 import type { FillResult } from "../import/fill.js";
 
-export function renderVerify(report: VerifyReport, file: string): string {
+export function renderVerify(report: VerifyReport, file: string, opts: { strict?: boolean } = {}): string {
   const out: string[] = [""];
   const errors = report.issues.filter((i) => i.severity === "error");
   const warnings = report.issues.filter((i) => i.severity === "warning");
@@ -16,11 +16,14 @@ export function renderVerify(report: VerifyReport, file: string): string {
   }
 
   const summary = `${report.sentencesChecked} sentences checked, ${report.sentencesWithReferences} with references.`;
-  if (report.ok) {
-    out.push(`  ${pc.green("Passed.")} ${summary}${warnings.length ? ` ${warnings.length} warning${warnings.length === 1 ? "" : "s"}.` : ""}`);
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  if (!verifyFailed(report, Boolean(opts.strict))) {
+    out.push(`  ${pc.green("Passed.")} ${summary}${warnings.length ? ` ${plural(warnings.length, "warning")}.` : ""}`);
     out.push(`  ${pc.dim("Every statement points to a source that exists and mentions what the sentence mentions. That is not proof the source is right.")}`);
+  } else if (errors.length > 0) {
+    out.push(`  ${pc.red(`Failed: ${plural(errors.length, "problem")}.`)} ${summary}${opts.strict && warnings.length ? ` ${plural(warnings.length, "warning")}, counted as failures with --strict.` : ""}`);
   } else {
-    out.push(`  ${pc.red(`Failed: ${errors.length} problem${errors.length === 1 ? "" : "s"}.`)} ${summary}`);
+    out.push(`  ${pc.red(`Failed: ${plural(warnings.length, "warning")}, counted as a failure with --strict.`)} ${summary}`);
   }
   out.push("");
   return out.join("\n");

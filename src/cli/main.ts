@@ -8,7 +8,7 @@ import { renderQuestionnaireMarkdown } from "../export/questionnaire.js";
 import { DOCUMENTS, buildDocument, documentNeeds, isDocumentId } from "../documents/build.js";
 import { EXPORT_FORMATS, isExportFormat, renderExport, type ExportFormat } from "../export/render.js";
 import { ImportError, fillQuestionnaire } from "../import/fill.js";
-import { verifyText } from "../verify/verify.js";
+import { verifyFailed, verifyText } from "../verify/verify.js";
 import { renderFill, renderVerify } from "../reporters/verify.js";
 import { AnswersError, loadAnswers } from "../questions/answers-file.js";
 import { answerAll, type Pending } from "../questions/engine.js";
@@ -327,9 +327,9 @@ function runVerifyCommand(values: Values, file: string | undefined, deps: CliDep
   const evidence = loadEvidence(evidencePath(values, deps));
   const answers = loadAnswers(answersPath(values, deps));
   const report = verifyText(readFileSync(path, "utf8"), evidence, answers);
-  deps.out(format === "json" ? JSON.stringify(report, null, 2) : renderVerify(report, relative(deps.cwd, path) || file));
-  const failed = !report.ok || (Boolean(values.strict) && report.issues.length > 0);
-  return failed ? 1 : 0;
+  const strict = Boolean(values.strict);
+  deps.out(format === "json" ? JSON.stringify(report, null, 2) : renderVerify(report, relative(deps.cwd, path) || file, { strict }));
+  return verifyFailed(report, strict) ? 1 : 0;
 }
 
 function runAnswerCommand(values: Values, file: string | undefined, deps: CliDeps): number {
