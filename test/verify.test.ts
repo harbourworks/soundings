@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { verifyText, verifyFailed, sentencesOf, type IssueCode } from "../src/verify/verify.js";
 import { renderVerify } from "../src/reporters/verify.js";
 import { run, type CliDeps } from "../src/cli/main.js";
-import { cleanupProjects, project } from "./helpers.js";
+import { cleanupProjects, evidenceOf, pkg, project } from "./helpers.js";
 import { emptyAnswers, setAnswer } from "../src/questions/answers-file.js";
 import { answerAll } from "../src/questions/engine.js";
 import { renderQuestionnaireMarkdown } from "../src/export/questionnaire.js";
@@ -75,6 +75,87 @@ describe("each kind of bad output is rejected", () => {
     }
     expect(codes(`Ticket text is sent to Bedrock to rate urgency [${bedrockFlow}].`, ticketApi)).toEqual([]);
     expect(codes(`Ticket text is sent to AWS Bedrock to rate urgency [${bedrockFlow}].`, ticketApi)).toEqual([]);
+  });
+
+  describe("saying data is sent to a provider when the cited facts only show its SDK is used", () => {
+    // Recorded bad output (issue #34): two providers called with fixed strings, so the scan has no
+    // data_flow fact, yet this passed --strict.
+    const fixedStrings = evidenceOf({
+      "package.json": pkg(["openai", "@anthropic-ai/sdk"]),
+      "server.ts": [
+        'import OpenAI from "openai";',
+        'import Anthropic from "@anthropic-ai/sdk";',
+        "const openai = new OpenAI();",
+        "const anthropic = new Anthropic();",
+        "export async function ping() {",
+        '  await openai.chat.completions.create({ model: "gpt-4o-mini", messages: [{ role: "user", content: "Say hello." }] });',
+        '  await anthropic.messages.create({ model: "claude-haiku-5-5", max_tokens: 10, messages: [{ role: "user", content: "Say hello." }] });',
+        "}",
+      ].join("\n"),
+    });
+    const sdkOnly = idOf(fixedStrings, (f) => f.subject === "Anthropic" && f.kind === "ai_provider");
+    const ticketApi = evidence("express-pg");
+    const anthropic = idOf(ticketApi, (f) => f.subject === "Anthropic" && f.kind === "ai_provider");
+    const anthropicFlow = idOf(ticketApi, (f) => f.subject === "Anthropic" && f.kind === "data_flow");
+    const cohereFlow = idOf(ticketApi, (f) => f.subject === "Cohere" && f.kind === "data_flow");
+    const rag = evidence("fastapi-rag");
+    const bedrock = idOf(rag, (f) => f.subject === "AWS Bedrock" && f.kind === "ai_provider");
+
+    it("fails the recorded sentence with flow-not-in-source", () => {
+      expect(fixedStrings.facts.some((f) => f.kind === "data_flow")).toBe(false);
+      const r = verifyText(`${DRAFT_NOTICE}\n\nThe app sends user questions to Anthropic [${sdkOnly}].`, fixedStrings, emptyAnswers());
+      expect(r.issues.map((i) => i.code)).toEqual(["flow-not-in-source"]);
+      expect(r.issues[0]!.message).toBe("Says data is sent to Anthropic, but the cited facts only show that Anthropic's SDK is used, not that data flows to it.");
+      expect(r.ok).toBe(false);
+    });
+
+    it("catches the other sent-to wordings", () => {
+      for (const s of [
+        "User questions are sent to Anthropic",
+        "The app sends each ticket to Anthropic",
+        "Ticket text is shared with Anthropic",
+        "The ticket body is passed to Anthropic",
+        "Ticket text is transmitted to Anthropic",
+        "Ticket text is included in prompts to Anthropic",
+        "Ticket text is forwarded to Anthropic",
+        "Customer files are uploaded to Anthropic",
+        "USER QUESTIONS ARE SENT TO ANTHROPIC",
+      ]) expect(codes(`${s} [${anthropic}].`, ticketApi), s).toEqual(["flow-not-in-source"]);
+    });
+
+    it("names the provider by a single word of a longer subject (Bedrock for AWS Bedrock)", () => {
+      expect(codes(`Search queries are sent to Bedrock [${bedrock}].`, rag)).toEqual(["flow-not-in-source"]);
+      expect(codes(`Search queries are sent to AWS Bedrock [${bedrock}].`, rag)).toEqual(["flow-not-in-source"]);
+    });
+
+    it("still fails when the only cited flow is to a different provider", () => {
+      expect(codes(`Ticket text is sent to Anthropic and Cohere [${anthropic}, ${cohereFlow}].`, ticketApi)).toEqual(["flow-not-in-source"]);
+    });
+
+    it("passes when a data_flow fact for that provider is cited", () => {
+      expect(codes(`The app sends user questions to Anthropic [${anthropicFlow}].`, ticketApi)).toEqual([]);
+      expect(codes(`The app sends user questions to Anthropic [${anthropic}, ${anthropicFlow}].`, ticketApi)).toEqual([]);
+    });
+
+    it("leaves sentences that only say the SDK is used", () => {
+      expect(codes(`The app uses the Anthropic SDK [${sdkOnly}].`, fixedStrings, emptyAnswers())).toEqual([]);
+      expect(codes(`Anthropic is used to rate ticket urgency [${anthropic}].`, ticketApi)).toEqual([]);
+      // The provider comes before the sending: what is sent goes to the users, not to Anthropic.
+      expect(codes(`Replies drafted with Anthropic are sent to customers [${anthropic}].`, ticketApi)).toEqual([]);
+      // The provider sits between the verb and "to": the client object is passed, not data to Anthropic.
+      expect(codes(`The app passes the Anthropic client to each route handler [${anthropic}].`, ticketApi)).toEqual([]);
+      expect(codes(`Ticket text is sent to Anthropic's API for triage [${anthropic}].`, ticketApi)).toEqual(["flow-not-in-source"]);
+      expect(codes(`Ticket text is sent to the model hosted by Anthropic [${anthropic}].`, ticketApi)).toEqual(["flow-not-in-source"]);
+    });
+
+    it("leaves a sentence that also cites the user's own answer", () => {
+      const a = setAnswer(emptyAnswers(), "profile.log-retention", "Ticket text is sent to Anthropic.", NOW);
+      expect(codes(`Ticket text is sent to Anthropic [${anthropic}, A-001].`, ticketApi, a)).toEqual([]);
+    });
+
+    it("keeps the existing absence error, not this one, for a negative sentence", () => {
+      expect(codes(`No ticket text is sent to Anthropic [${anthropic}].`, ticketApi)).toEqual(["absence-contradicts-source"]);
+    });
   });
 
   it("a database engine only the Prisma or Drizzle detectors name, uncited or cited against another engine", () => {
