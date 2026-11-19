@@ -305,6 +305,29 @@ describe("data flow to AI providers", () => {
     it("does not take a parse or generate call on an unrelated object for a model call", () => {
       expect(flowAt(`[JSON.parse(userText), schema.parse(userText), images.generate(userText)]`)).toBeUndefined();
     });
+
+    // The SDK is always called through a client (`client.images.generate`), so a bare
+    // `images.generate` or `responses.parse` is the project's own object, even with a content key.
+    it("does not take the project's own images module for OpenAI's images API", () => {
+      const f = flow({
+        "thumbs.ts": `${head}import * as images from "./image-store";\nexport async function thumb(userCaption: string) {\n  await client.responses.create({ model: "m", input: "Say hello." });\n  return images.generate({ prompt: userCaption, width: 128 });\n}\n`,
+      });
+      expect(f).toBeUndefined();
+    });
+
+    it("does not take a schema called responses for OpenAI's responses API", () => {
+      const f = flow({
+        "survey.ts": `${head}import { z } from "zod";\nconst responses = z.object({ input: z.string() });\nexport async function save(body: string) {\n  const parsed = responses.parse({ input: body });\n  await client.chat.completions.parse({ model: "m", messages: [{ role: "user", content: "Say hello." }] });\n  return parsed;\n}\n`,
+      });
+      expect(f).toBeUndefined();
+    });
+
+    it("still flags an image edit split over several lines on a client", () => {
+      const f = flow({
+        "server.ts": `${head}export function edit(req: { body: { image: string; instructions: string } }) {\n  return client\n    .images\n    .edit({ image: req.body.image, prompt: req.body.instructions });\n}\n`,
+      });
+      expect(f ? { confidence: f.confidence, line: f.locations[0]?.line } : undefined).toEqual({ confidence: "high", line: 4 });
+    });
   });
 });
 
