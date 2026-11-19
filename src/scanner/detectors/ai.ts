@@ -170,6 +170,16 @@ const AI_CALL_TAILS: string[][] = [
   ["chat", "complete"],
   ["chat", "stream"],
 ];
+/**
+ * Calls whose method names (`parse`, `generate`, `edit`) are common in ordinary code, so they count
+ * only on a receiver (`client.images.generate(…)`): a bare `images.generate(…)` is the project's own object.
+ */
+const AI_CALL_TAILS_ON_CLIENT: string[][] = [
+  ["chat", "completions", "parse"],
+  ["responses", "parse"],
+  ["images", "generate"],
+  ["images", "edit"],
+];
 const AI_CALL_FUNCTIONS = new Set(["generateText", "streamText", "generateObject", "streamObject", "embed", "embedMany"]);
 /** The module that exports `AI_CALL_FUNCTIONS`, so `import { generateText as gt } from "ai"` makes `gt(...)` a model call. */
 const AI_CALL_MODULES = new Set(["ai"]);
@@ -201,6 +211,7 @@ function payloadIn(f: JsFile, providers: ProviderSpec[]): { confidence: "high" |
   for (const call of calls(f.ast)) {
     const isAiCall =
       (call.chain !== null && AI_CALL_TAILS.some((t) => endsWith(call.chain, t))) ||
+      (call.chain !== null && AI_CALL_TAILS_ON_CLIENT.some((t) => call.chain!.length > t.length && endsWith(call.chain, t))) ||
       (call.chain !== null && call.chain.length === 1 && call.node.type === "CallExpression" && AI_CALL_FUNCTIONS.has(resolve(fnNames, call.chain[0]!, call.node.callee))) ||
       (call.chain !== null && ownTails.some((t) => call.chain!.length > t.length && endsWith(call.chain, t)));
     if (isAiCall && call.node.type === "CallExpression") sends.push({ args: call.node.arguments, ...(call.line ? { line: call.line } : {}) });

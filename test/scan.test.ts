@@ -44,6 +44,30 @@ describe.each(names)("scanning the %s fixture", (name) => {
   });
 });
 
+describe("OpenAI prompts in the notes-saas fixture", () => {
+  // Facts with the same claim merge into one, so the answer key alone can't tell which calls a
+  // data-flow fact points to. Pin the locations: the fixed-prompt calls in lib/sample-content.ts are a decoy.
+  const flows = () => scan({ root: join(ROOT, "apps", "notes-saas"), now: NOW }).evidence.facts.filter((f) => f.kind === "data_flow");
+
+  it("points at each call that sends user text, at the call line, with high confidence", () => {
+    expect(flows().map((f) => ({ subject: f.subject, confidence: f.confidence, locations: f.locations }))).toEqual([
+      {
+        subject: "OpenAI",
+        confidence: "high",
+        locations: [
+          { file: "app/api/summarise/route.ts", line: 8 },
+          { file: "lib/cover-image.ts", line: 7 },
+          { file: "lib/note-tags.ts", line: 8 },
+        ],
+      },
+    ]);
+  });
+
+  it("does not report the fixed-prompt images.generate and responses.parse calls", () => {
+    expect(flows().flatMap((f) => f.locations).filter((l) => l.file === "lib/sample-content.ts")).toEqual([]);
+  });
+});
+
 describe("privacy", () => {
   it("never lets a secret from the project reach the evidence", () => {
     const envSecret = rand(32);

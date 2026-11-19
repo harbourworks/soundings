@@ -260,6 +260,75 @@ describe("data flow to AI providers", () => {
     const f = flow({ "ai.ts": `${head}export const r = client.chat.completions.create({ model: "m", messages: [{ role: "user", content: "Say hello." }] });\n` });
     expect(f).toBeUndefined();
   });
+
+  describe("structured-output and image calls", () => {
+    const flowAt = (body: string) => {
+      const f = flow({ "ai.ts": `${head}export function ask(userText: string) {\n  return ${body};\n}\n` });
+      return f ? { subject: f.subject, confidence: f.confidence, line: f.locations[0]?.line } : undefined;
+    };
+    const high = { subject: "OpenAI", confidence: "high", line: 4 };
+
+    it("flags a function parameter sent through responses.parse", () => {
+      expect(flowAt(`client.responses.parse({ model: "m", input: [{ role: "user", content: userText }] })`)).toEqual(high);
+    });
+
+    it("flags a function parameter sent through chat.completions.parse", () => {
+      expect(flowAt(`client.chat.completions.parse({ model: "m", messages: [{ role: "user", content: userText }] })`)).toEqual(high);
+    });
+
+    it("flags a function parameter sent through beta.chat.completions.parse", () => {
+      expect(flowAt(`client.beta.chat.completions.parse({ model: "m", messages: [{ role: "user", content: userText }] })`)).toEqual(high);
+    });
+
+    it("flags a function parameter sent through images.generate", () => {
+      expect(flowAt(`client.images.generate({ model: "m", prompt: userText })`)).toEqual(high);
+    });
+
+    it("flags a function parameter sent through images.edit", () => {
+      expect(flowAt(`client.images.edit({ model: "m", image: "in.png", prompt: \`Make it brighter: \${userText}\` })`)).toEqual(high);
+    });
+
+    it("ignores images.generate with a fixed prompt", () => {
+      expect(flowAt(`client.images.generate({ model: "m", prompt: "a cat" })`)).toBeUndefined();
+    });
+
+    it("ignores responses.parse with a fixed input", () => {
+      expect(flowAt(`client.responses.parse({ model: "m", input: "Suggest a name for a notebook." })`)).toBeUndefined();
+      expect(flowAt(`client.responses.parse({ model: "m", input: [{ role: "user", content: "Suggest a name." }] })`)).toBeUndefined();
+    });
+
+    it("ignores images.edit and chat.completions.parse with fixed prompts", () => {
+      expect(flowAt(`client.images.edit({ model: "m", image: "in.png", prompt: "Make it brighter." })`)).toBeUndefined();
+      expect(flowAt(`client.chat.completions.parse({ model: "m", messages: [{ role: "user", content: "Say hello." }] })`)).toBeUndefined();
+    });
+
+    it("does not take a parse or generate call on an unrelated object for a model call", () => {
+      expect(flowAt(`[JSON.parse(userText), schema.parse(userText), images.generate(userText)]`)).toBeUndefined();
+    });
+
+    // The SDK is always called through a client (`client.images.generate`), so a bare
+    // `images.generate` or `responses.parse` is the project's own object, even with a content key.
+    it("does not take the project's own images module for OpenAI's images API", () => {
+      const f = flow({
+        "thumbs.ts": `${head}import * as images from "./image-store";\nexport async function thumb(userCaption: string) {\n  await client.responses.create({ model: "m", input: "Say hello." });\n  return images.generate({ prompt: userCaption, width: 128 });\n}\n`,
+      });
+      expect(f).toBeUndefined();
+    });
+
+    it("does not take a schema called responses for OpenAI's responses API", () => {
+      const f = flow({
+        "survey.ts": `${head}import { z } from "zod";\nconst responses = z.object({ input: z.string() });\nexport async function save(body: string) {\n  const parsed = responses.parse({ input: body });\n  await client.chat.completions.parse({ model: "m", messages: [{ role: "user", content: "Say hello." }] });\n  return parsed;\n}\n`,
+      });
+      expect(f).toBeUndefined();
+    });
+
+    it("still flags an image edit split over several lines on a client", () => {
+      const f = flow({
+        "server.ts": `${head}export function edit(req: { body: { image: string; instructions: string } }) {\n  return client\n    .images\n    .edit({ image: req.body.image, prompt: req.body.instructions });\n}\n`,
+      });
+      expect(f ? { confidence: f.confidence, line: f.locations[0]?.line } : undefined).toEqual({ confidence: "high", line: 4 });
+    });
+  });
 });
 
 describe("third-party services", () => {
