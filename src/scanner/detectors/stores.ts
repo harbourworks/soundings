@@ -1,5 +1,6 @@
 import type { FactDraft } from "../../evidence/build.js";
 import { importsModule, importsPy, isProductFile } from "../context.js";
+import { stringBody, type PyLine } from "../python/tokenize.js";
 import type { Detector } from "../types.js";
 
 const SUPABASE_SQL = /(^|\/)supabase\/(migrations\/.+|schema)\.sql$/;
@@ -258,9 +259,10 @@ const drizzle: Detector = {
 };
 
 /**
- * A database connection string in configuration (a compose file, settings, an env template).
- * It shows what the project is set up to use even when no client library is imported in code the
- * scan reads. Medium confidence, and dropped when a client import already shows the same store.
+ * A database connection string in configuration (a compose file, settings, an env template) or a
+ * Python string literal. It shows what the project is set up to use even when no client library is
+ * imported in code the scan reads. Medium confidence, and dropped when a client import already
+ * shows the same store.
  */
 const CONNECTION_FILE = /\.(?:py|ya?ml|toml|ini|cfg|json)$|(?:^|\/)\.env(?:\.[\w.-]+)?$/;
 const CONNECTION_STRING = /\b(postgres(?:ql)?(?:\+\w+)?|mysql(?:\+\w+)?|mongodb(?:\+srv)?|rediss?):\/\//gi;
@@ -269,6 +271,8 @@ const CONNECTION_SUBJECT = (scheme: string): string => {
   return s.startsWith("postgres") ? "PostgreSQL" : s.startsWith("mysql") ? "MySQL" : s.startsWith("mongodb") ? "MongoDB" : "Redis";
 };
 
+const pythonDocstring = (line: PyLine) => line.toks.length === 1 && line.toks[0]?.t === "str";
+
 const connectionString: Detector = {
   id: "data-store/connection-string",
   skipReason: () => null,
@@ -276,23 +280,33 @@ const connectionString: Detector = {
     const facts: FactDraft[] = [];
     for (const file of ctx.project.files) {
       if (!CONNECTION_FILE.test(file) || /(?:^|\/)(?:package-lock\.json|[^/]*\.lock)$/.test(file)) continue;
+      const python = file.endsWith(".py") ? ctx.py.find((f) => f.file === file) : undefined;
+      if (file.endsWith(".py") && !python) continue;
       const text = ctx.project.read(file);
       if (text === null) continue;
       const seen = new Set<string>();
-      for (const m of text.matchAll(CONNECTION_STRING)) {
-        const subject = CONNECTION_SUBJECT(m[1]!);
-        if (seen.has(subject)) continue;
-        seen.add(subject);
-        facts.push({
-          kind: "data_store",
-          subject,
-          claim: `A connection string for ${subject} appears in the project's configuration.`,
-          attributes: { engine: subject.toLowerCase() },
-          confidence: "medium",
-          detector: "data-store/connection-string",
-          key: file,
-          locations: [{ file, line: ctx.project.position(file, m.index ?? 0).line }],
-        });
+      const strings = python
+        ? python.lines.flatMap((line) => {
+            if (pythonDocstring(line)) return [];
+            return line.toks.filter((token) => token.t === "str").map((token) => ({ text: stringBody(token.s), line: token.line }));
+          })
+        : [{ text, line: 0 }];
+      for (const source of strings) {
+        for (const m of source.text.matchAll(CONNECTION_STRING)) {
+          const subject = CONNECTION_SUBJECT(m[1]!);
+          if (seen.has(subject)) continue;
+          seen.add(subject);
+          facts.push({
+            kind: "data_store",
+            subject,
+            claim: `A connection string for ${subject} appears in ${python ? "application code" : "the project's configuration"}.`,
+            attributes: { engine: subject.toLowerCase() },
+            confidence: "medium",
+            detector: "data-store/connection-string",
+            key: file,
+            locations: [{ file, line: source.line || ctx.project.position(file, (m.index ?? 0)).line }],
+          });
+        }
       }
     }
     return facts;
