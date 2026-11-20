@@ -241,6 +241,38 @@ describe("django databases", () => {
     expect(stores(decoys).map((f) => f.subject)).toEqual(["No database found"]);
   });
 
+  it("leaves out test settings in a settings package, so an unreadable product engine stays a medium SQL database", () => {
+    const s = stores({
+      "config/settings/base.py": 'import environ\nenv = environ.Env()\nDATABASES = {"default": env.db("DATABASE_URL")}\n',
+      "config/settings/test.py": 'DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}}\n',
+      "shop/models.py": models,
+    });
+    expect(s.map((f) => `${f.subject}|${f.confidence}`)).toEqual(["SQL database (Django)|medium"]);
+    expect(s[0]!.locations?.map((l) => l.file).sort()).toEqual(["config/settings/base.py", "shop/models.py"]);
+  });
+
+  it.each(["test.py", "tests.py", "testing.py"])("treats %s in a settings package or beside settings.py as test settings", (name) => {
+    const sqlite = 'DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3"}}\n';
+    const s = stores({
+      "config/settings/production.py": settings('"django.db.backends.postgresql"'),
+      [`config/settings/${name}`]: sqlite,
+      [`site/${name}`]: sqlite,
+      "site/settings.py": settings('"django.db.backends.postgresql"'),
+    });
+    expect(s.map((f) => `${f.subject}|${f.locations?.map((l) => l.file).join(",")}`)).toEqual([
+      "PostgreSQL|config/settings/production.py,site/settings.py",
+    ]);
+  });
+
+  it("keeps base, local, production and other settings modules", () => {
+    const s = stores({
+      "config/settings/base.py": settings('"django.db.backends.postgresql"'),
+      "config/settings/local.py": settings('"django.db.backends.sqlite3"'),
+      "config/settings/production.py": settings('"django.db.backends.mysql"'),
+    });
+    expect(s.map((f) => f.subject).sort()).toEqual(["MySQL", "PostgreSQL", "SQLite"]);
+  });
+
   it("does not take any 0001 file under migrations/ for a Django migration", () => {
     expect(stores({ "db/migrations/0001_init.py": "import alembic\n" }).map((f) => f.subject)).toEqual(["No database found"]);
   });

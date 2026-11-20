@@ -315,6 +315,29 @@ function engineEntries(toks: Tok[]): Array<{ value: string | null; line: number 
   return out;
 }
 
+/** Test settings by name: `test.py`, `tests.py` or `testing.py`. (`test_*.py`, `*_test.py` and `tests/` are never product files.) */
+const DJANGO_TEST_SETTINGS = /(?:^|\/)(?:test|tests|testing)\.py$/;
+
+/**
+ * Test settings that sit in a settings package (`…/settings/test.py`) or next to a settings module
+ * (`site/test.py` beside `site/settings.py`). They say how tests run, not where the product stores data.
+ */
+function isDjangoTestSettings(file: string, pyFiles: ReadonlySet<string>): boolean {
+  if (!DJANGO_TEST_SETTINGS.test(file)) return false;
+  const dir = file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : "";
+  return /(?:^|\/)settings$/.test(dir) || pyFiles.has(dir ? `${dir}/settings.py` : "settings.py");
+}
+
+/** The product's Django settings modules and their `DATABASES` values, test settings left out. */
+function djangoSettings(py: readonly PyFile[]): Array<{ file: string; line: number; toks: Tok[] }> {
+  const files = new Set(py.map((f) => f.file));
+  return py.flatMap((f) => {
+    if (isDjangoTestSettings(f.file, files)) return [];
+    const db = djangoDatabases(f);
+    return db ? [{ file: f.file, ...db }] : [];
+  });
+}
+
 const DJANGO_UNREAD = "The project uses Django's database layer (models or migrations), but the scan could not tell which database engine its settings name.";
 
 /**
@@ -325,12 +348,9 @@ const DJANGO_UNREAD = "The project uses Django's database layer (models or migra
 const django: Detector = {
   id: "data-store/django",
   skipReason: (ctx) =>
-    ctx.py.some((f) => djangoDatabases(f) || importsPy(f, "django.db")) ? null : "no Django database settings, models or migrations found",
+    djangoSettings(ctx.py).length > 0 || ctx.py.some((f) => importsPy(f, "django.db")) ? null : "no Django database settings, models or migrations found",
   run: (ctx) => {
-    const settings = ctx.py.flatMap((f) => {
-      const db = djangoDatabases(f);
-      return db ? [{ file: f.file, ...db }] : [];
-    });
+    const settings = djangoSettings(ctx.py);
     const facts: FactDraft[] = [];
     for (const s of settings) {
       const seen = new Set<string>();

@@ -14,6 +14,7 @@
     { "kind": "data_store", "subject": "MySQL", "file": "mysite/settings.py", "contains": "\"ENGINE\": \"django.db.backends.mysql\"", "why": "An ENGINE setting quoted in the settings module's docstring, describing a draft that was dropped." },
     { "kind": "data_store", "subject": "Oracle", "file": "mysite/settings.py", "contains": "# \"ENGINE\": \"django.db.backends.oracle\"", "why": "A commented-out ENGINE line inside DATABASES." },
     { "kind": "data_store", "subject": "SQLite", "file": "tests/settings.py", "contains": "django.db.backends.sqlite3", "why": "Test settings: tests describe how code is checked, not where the product stores data." },
+    { "kind": "data_store", "subject": "SQLite", "file": "config/settings/test.py", "contains": "django.db.backends.sqlite3", "why": "Test settings in a settings package: they say how tests run, not where the product stores data." },
     { "kind": "data_store", "subject": "SQL database (Django)", "file": "orders/models.py", "contains": "from django.db import models", "why": "The settings name the engine, so the project is reported as PostgreSQL, not as a second, generic store." },
     { "kind": "data_store", "subject": "No database found", "file": "orders/migrations/0001_initial.py", "contains": "migrations.CreateModel", "why": "The project has Django models and migrations, so it must never be reported as having no database." }
   ]
