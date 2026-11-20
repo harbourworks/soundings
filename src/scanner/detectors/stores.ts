@@ -1,6 +1,7 @@
 import type { FactDraft } from "../../evidence/build.js";
 import { importsModule, importsPy, isProductFile } from "../context.js";
-import type { Detector } from "../types.js";
+import { stringBody, isFString, type Tok } from "../python/tokenize.js";
+import type { Detector, PyFile } from "../types.js";
 
 const SUPABASE_SQL = /(^|\/)supabase\/(migrations\/.+|schema)\.sql$/;
 
@@ -257,6 +258,143 @@ const drizzle: Detector = {
     }),
 };
 
+/** Django's own database backends, by module path: `ENGINE` names one of these. */
+const DJANGO_ENGINES: Record<string, { subject: string; engine: string }> = {
+  "django.db.backends.postgresql": ENGINES.postgresql!,
+  "django.db.backends.postgresql_psycopg2": ENGINES.postgresql!,
+  "django.contrib.gis.db.backends.postgis": ENGINES.postgresql!,
+  "django.db.backends.sqlite3": ENGINES.sqlite!,
+  "django.contrib.gis.db.backends.spatialite": ENGINES.sqlite!,
+  "django.db.backends.mysql": ENGINES.mysql!,
+  "django.contrib.gis.db.backends.mysql": ENGINES.mysql!,
+  "django.db.backends.oracle": { subject: "Oracle", engine: "oracle" },
+  "django.contrib.gis.db.backends.oracle": { subject: "Oracle", engine: "oracle" },
+};
+
+/** An app's first migration, `<app>/migrations/0001_*.py`. */
+const DJANGO_MIGRATION = /(?:^|\/)[^/]+\/migrations\/0001_[^/]*\.py$/;
+
+/** The value tokens of a module-level `DATABASES = …` (or `DATABASES: dict = …`), or null if the file doesn't assign it. */
+function djangoDatabases(f: PyFile): { line: number; toks: Tok[] } | null {
+  for (const l of f.lines) {
+    const t = l.toks;
+    if (l.indent !== 0 || t[0]?.t !== "name" || t[0].s !== "DATABASES" || t[1]?.t !== "op" || (t[1].s !== "=" && t[1].s !== ":")) continue;
+    // The `=` that assigns: the first one outside the annotation's brackets that isn't part of `==`.
+    let depth = 0;
+    for (let i = 1; i < t.length; i++) {
+      const x = t[i]!;
+      if (x.t !== "op") continue;
+      if ("([{".includes(x.s)) depth++;
+      else if (")]}".includes(x.s)) depth--;
+      else if (depth === 0 && x.s === "=" && t[i + 1]?.s !== "=" && !"=!<>".includes(t[i - 1]!.t === "op" ? t[i - 1]!.s : "_")) return { line: l.line, toks: t.slice(i + 1) };
+    }
+  }
+  return null;
+}
+
+/**
+ * Every `"ENGINE": <value>` dict entry in the tokens. `value` is the engine's module path when it is
+ * one plain string, and null when it is anything else (a variable, a call, an f-string).
+ */
+function engineEntries(toks: Tok[]): Array<{ value: string | null; line: number }> {
+  const out: Array<{ value: string | null; line: number }> = [];
+  for (let i = 0; i < toks.length - 1; i++) {
+    if (toks[i]!.t !== "str" || isFString(toks[i]!.s) || stringBody(toks[i]!.s) !== "ENGINE" || toks[i + 1]!.s !== ":") continue;
+    const value: Tok[] = [];
+    let depth = 0;
+    for (let k = i + 2; k < toks.length; k++) {
+      const y = toks[k]!;
+      if (y.t === "op" && "([{".includes(y.s)) depth++;
+      else if (y.t === "op" && ")]}".includes(y.s) && depth-- === 0) break;
+      else if (depth === 0 && y.t === "op" && y.s === ",") break;
+      value.push(y);
+    }
+    const plain = value.length === 1 && value[0]!.t === "str" && !isFString(value[0]!.s);
+    out.push({ value: plain ? stringBody(value[0]!.s) : null, line: toks[i]!.line });
+  }
+  return out;
+}
+
+/** Test settings by name: `test.py`, `tests.py` or `testing.py`. (`test_*.py`, `*_test.py` and `tests/` are never product files.) */
+const DJANGO_TEST_SETTINGS = /(?:^|\/)(?:test|tests|testing)\.py$/;
+
+/**
+ * Test settings that sit in a settings package (`…/settings/test.py`) or next to a settings module
+ * (`site/test.py` beside `site/settings.py`). They say how tests run, not where the product stores data.
+ */
+function isDjangoTestSettings(file: string, pyFiles: ReadonlySet<string>): boolean {
+  if (!DJANGO_TEST_SETTINGS.test(file)) return false;
+  const dir = file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : "";
+  return /(?:^|\/)settings$/.test(dir) || pyFiles.has(dir ? `${dir}/settings.py` : "settings.py");
+}
+
+/** The product's Django settings modules and their `DATABASES` values, test settings left out. */
+function djangoSettings(py: readonly PyFile[]): Array<{ file: string; line: number; toks: Tok[] }> {
+  const files = new Set(py.map((f) => f.file));
+  return py.flatMap((f) => {
+    if (isDjangoTestSettings(f.file, files)) return [];
+    const db = djangoDatabases(f);
+    return db ? [{ file: f.file, ...db }] : [];
+  });
+}
+
+const DJANGO_UNREAD = "The project uses Django's database layer (models or migrations), but the scan could not tell which database engine its settings name.";
+
+/**
+ * The database engine a Django project's settings name. Read from `DATABASES` dict literals in
+ * product code (test settings are left out), so comments and docstrings never count. When no
+ * engine can be read, Django models or migrations still show a SQL database, at medium confidence.
+ */
+const django: Detector = {
+  id: "data-store/django",
+  skipReason: (ctx) =>
+    djangoSettings(ctx.py).length > 0 || ctx.py.some((f) => importsPy(f, "django.db")) ? null : "no Django database settings, models or migrations found",
+  run: (ctx) => {
+    const settings = djangoSettings(ctx.py);
+    const facts: FactDraft[] = [];
+    for (const s of settings) {
+      const seen = new Set<string>();
+      for (const e of engineEntries(s.toks)) {
+        const known = e.value === null ? undefined : DJANGO_ENGINES[e.value];
+        if (!known || seen.has(known.subject)) continue;
+        seen.add(known.subject);
+        facts.push({
+          kind: "data_store",
+          subject: known.subject,
+          claim: `The project's Django settings name ${known.subject} as a database engine (DATABASES ENGINE).`,
+          attributes: { engine: known.engine },
+          confidence: "high",
+          detector: "data-store/django",
+          key: s.file,
+          locations: [{ file: s.file, line: e.line }],
+        });
+      }
+    }
+    if (facts.length > 0) return facts;
+
+    const at = (f: PyFile) => {
+      const imp = importsPy(f, "django.db");
+      return { file: f.file, ...(imp?.line ? { line: imp.line } : {}) };
+    };
+    // A migration imports `models` too; it is counted as a migration, not as a models file.
+    const models = ctx.py.filter((f) => importsPy(f, "django.db.models") && !/(?:^|\/)migrations\//.test(f.file));
+    const migrations = ctx.py.filter((f) => DJANGO_MIGRATION.test(f.file) && importsPy(f, "django.db"));
+    if (models.length === 0 && migrations.length === 0) return [];
+    return [
+      {
+        kind: "data_store",
+        subject: "SQL database (Django)",
+        claim: DJANGO_UNREAD,
+        attributes: { engine: "sql" },
+        confidence: "medium",
+        detector: "data-store/django",
+        key: (settings[0] ?? models[0] ?? migrations[0])!.file,
+        locations: [...settings.map((s) => ({ file: s.file, line: s.line })), ...models.slice(0, 3).map(at), ...migrations.slice(0, 1).map(at)],
+      },
+    ];
+  },
+};
+
 /**
  * A database connection string in configuration (a compose file, settings, an env template).
  * It shows what the project is set up to use even when no client library is imported in code the
@@ -299,4 +437,4 @@ const connectionString: Detector = {
   },
 };
 
-export const storeDetectors: Detector[] = [supabase, ...STORES.map(storeDetector), prisma, drizzle, connectionString];
+export const storeDetectors: Detector[] = [supabase, ...STORES.map(storeDetector), prisma, drizzle, django, connectionString];
