@@ -184,6 +184,13 @@ const AI_CALL_FUNCTIONS = new Set(["generateText", "streamText", "generateObject
 /** The module that exports `AI_CALL_FUNCTIONS`, so `import { generateText as gt } from "ai"` makes `gt(...)` a model call. */
 const AI_CALL_MODULES = new Set(["ai"]);
 const CONTENT_KEYS = new Set(["content", "prompt", "input", "contents", "text", "system", "messages"]);
+/**
+ * Calls that take the prompt itself as their first argument (`model.generateContent(prompt)`), read only
+ * on a receiver. Other SDKs take an options object there, so a variable in that place is not read as content.
+ */
+const POSITIONAL_PROMPT_TAILS: string[][] = [["generateContent"], ["generateContentStream"]];
+/** Argument shapes that can carry text: a fixed string has no roots, so it still gives nothing. */
+const POSITIONAL_PROMPT_TYPES = new Set(["Identifier", "TemplateLiteral", "BinaryExpression", "ArrayExpression"]);
 
 /**
  * Finds model calls whose prompt content comes from somewhere other than a fixed string.
@@ -207,14 +214,17 @@ function payloadIn(f: JsFile, providers: ProviderSpec[]): { confidence: "high" |
   };
   let best: { confidence: "high" | "medium"; line?: number } | null = null;
 
-  const sends: Array<{ args: Node[]; line?: number }> = [];
+  const sends: Array<{ args: Node[]; line?: number; positional?: boolean }> = [];
   for (const call of calls(f.ast)) {
     const isAiCall =
       (call.chain !== null && AI_CALL_TAILS.some((t) => endsWith(call.chain, t))) ||
       (call.chain !== null && AI_CALL_TAILS_ON_CLIENT.some((t) => call.chain!.length > t.length && endsWith(call.chain, t))) ||
       (call.chain !== null && call.chain.length === 1 && call.node.type === "CallExpression" && AI_CALL_FUNCTIONS.has(resolve(fnNames, call.chain[0]!, call.node.callee))) ||
       (call.chain !== null && ownTails.some((t) => call.chain!.length > t.length && endsWith(call.chain, t)));
-    if (isAiCall && call.node.type === "CallExpression") sends.push({ args: call.node.arguments, ...(call.line ? { line: call.line } : {}) });
+    if (isAiCall && call.node.type === "CallExpression") {
+      const positional = call.chain!.length > 1 && POSITIONAL_PROMPT_TAILS.some((t) => endsWith(call.chain, t));
+      sends.push({ args: call.node.arguments, ...(call.line ? { line: call.line } : {}), ...(positional ? { positional } : {}) });
+    }
   }
   if (commands.size > 0) {
     walkAst(f.ast, (n) => {
@@ -230,6 +240,8 @@ function payloadIn(f: JsFile, providers: ProviderSpec[]): { confidence: "high" |
   sends.sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
   for (const call of sends) {
     const roots = new Set<string>();
+    const first = call.args[0];
+    if (call.positional && first && POSITIONAL_PROMPT_TYPES.has(first.type)) for (const r of dynamicRoots(first)) roots.add(r);
     for (const arg of call.args) {
       walkAst(arg, (n) => {
         if (n.type === "ObjectProperty" && !n.computed) {
