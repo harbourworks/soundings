@@ -303,6 +303,23 @@ const AI_CALL_TAILS: string[][] = [
   ["chat", "stream_async"],
 ];
 const CONTENT_KEYS: ReadonlySet<string> = new Set(["content", "prompt", "input", "contents", "text", "system", "messages", "query"]);
+/** Calls that take the prompt itself as their first argument (`model.generate_content(prompt)`), read only on a receiver. */
+const POSITIONAL_PROMPT_TAILS: string[][] = [["generate_content"], ["generate_content_async"]];
+
+/** The first positional argument's tokens, up to the first comma at the same depth, or null for a keyword or `*`/`**` argument. */
+function firstPositional(args: Tok[]): Tok[] | null {
+  if (isName(args[0]) && isOp(args[1], "=") && !isOp(args[2], "=")) return null;
+  if (isOp(args[0], "*") || isOp(args[0], "**")) return null;
+  const value: Tok[] = [];
+  let depth = 0;
+  for (const y of args) {
+    if (y.t === "op" && "([{".includes(y.s)) depth++;
+    else if (y.t === "op" && ")]}".includes(y.s)) depth--;
+    else if (depth === 0 && isOp(y, ",")) break;
+    value.push(y);
+  }
+  return value.length > 0 ? value : null;
+}
 
 /**
  * Model calls whose prompt comes from somewhere other than a fixed string. High when it traces to a
@@ -318,7 +335,8 @@ export function aiPayload(lines: PyLine[], calls: PyCall[], funcs: PyFunc[], own
   for (const c of calls) {
     if (!AI_CALL_TAILS.some((t) => callEndsWith(c.chain, t)) && !ownTails.some((t) => c.chain.length > t.length && callEndsWith(c.chain, t))) continue;
     const roots = new Set<string>();
-    for (const v of valuesOf(c.args, CONTENT_KEYS)) {
+    const first = c.chain.length > 1 && POSITIONAL_PROMPT_TAILS.some((t) => callEndsWith(c.chain, t)) ? firstPositional(c.args) : null;
+    for (const v of [...(first ? [first] : []), ...valuesOf(c.args, CONTENT_KEYS)]) {
       if (v.length === 1 && v[0]!.t === "str" && !isFString(v[0]!.s)) continue; // a fixed string
       for (const n of dependsOn(v)) roots.add(n);
     }
