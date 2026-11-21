@@ -269,6 +269,12 @@ function unsupportedFlows(body: string, citedFacts: EvidenceFile["facts"]): stri
  * "while"), or a verb ("questions are …"). A recipient is a short noun phrase, so nothing past this is one.
  */
 const RECIPIENT_END = /[;:()[\]]|\s(?:(?:and|but|or|then)\s+(?:the|it|its|we|our|they|their|this|that|these|those|you|your|he|she|i)\b|(?:after|before|which|while|whereas|when|whenever|once|until|because|since|if|unless|where|who|whom|whose|then|but|so|is|are|was|were|has|have|had|uses)\b)/i;
+/**
+ * A new clause whose subject is named after "and", "or" or a comma: "and OpenAI is used …", ", Anthropic handles …".
+ * The name is then the subject of its own verb, not a recipient. The verbs are listed (no guessing from a final "s",
+ * which would catch "Anthropic servers"), and the subject is one to three words that aren't a relative pronoun.
+ */
+const SUBJECT_CLAUSE = /(?:,\s*(?:(?:and|or)\s+)?|\s(?:and|or)\s+)(?:(?!(?:which|who|whom|whose|that|where|also|to|for|with|via)\b)[\w'’.-]+\s+){1,3}?(?:also\s+)?(?:is|are|was|were|has|have|had|uses|use|can|will|would|may|might|must|should|does|did|handles|powers|drafts|generates|writes|answers|returns|provides|runs|serves|processes|produces|creates|summarises|summarizes|classifies|translates|replies|responds)\b/i;
 /** Words allowed before the recipient's name: "the model hosted by Anthropic", "OpenAI and Anthropic". */
 const RECIPIENT_WORDS = 6;
 
@@ -277,8 +283,8 @@ const RECIPIENT_WORDS = 6;
  * comma ends it too, unless what follows continues a list of names ("to OpenAI, Anthropic and Cohere").
  */
 function recipientOf(after: string): string {
-  const cut = after.search(RECIPIENT_END);
-  const clause = cut === -1 ? after : after.slice(0, cut);
+  const cuts = [after.search(RECIPIENT_END), after.search(SUBJECT_CLAUSE)].filter((i) => i !== -1);
+  const clause = cuts.length === 0 ? after : after.slice(0, Math.min(...cuts));
   const [first = "", ...rest] = clause.split(",");
   const kept = [first];
   for (const part of rest) {

@@ -183,6 +183,14 @@ describe("each kind of bad output is rejected", () => {
         ["Errors are sent to Sentry while the app uses Anthropic for chat [SENTRY, CLAUDE]."],
         ["Errors are sent to Sentry and it also uses Anthropic [SENTRY, CLAUDE]."],
         ["Errors are sent to Sentry and we use Anthropic for chat [SENTRY, CLAUDE]."],
+        // The provider is the subject of a new clause, after "and" or a comma.
+        ["Errors are sent to Sentry and OpenAI is used for chat replies [SENTRY, GPT]."],
+        ["Logs are sent to stdout and OpenAI is called from server code [GPT]."],
+        ["Errors are sent to Sentry and Anthropic handles chat [SENTRY, CLAUDE]."],
+        ["Error reports are sent to Sentry, Anthropic is used for chat [SENTRY, CLAUDE]."],
+        ["Errors are sent to Sentry and Anthropic also drafts the replies [SENTRY, CLAUDE]."],
+        ["Errors are sent to Sentry, and OpenAI powers search [SENTRY, GPT]."],
+        ["Errors are sent to Sentry and the OpenAI model can answer questions [SENTRY, GPT]."],
       ])("passes a true sentence where the provider is outside the sent-to clause: %s", (s) => {
         expect(check(s.replace("SENTRY", sentry).replace("CLAUDE", claude).replace("GPT", gpt))).toEqual([]);
       });
@@ -200,6 +208,14 @@ describe("each kind of bad output is rejected", () => {
         expect(check(`User questions are sent to Sentry and Anthropic [${sentry}, ${claude}].`)).toEqual(["flow-not-in-source"]);
         expect(check(`User questions are sent to Sentry, OpenAI and Anthropic [${sentry}, ${gpt}, ${claude}].`)).toEqual(["flow-not-in-source", "flow-not-in-source"]);
         expect(check(`User questions are sent to the model used by Anthropic [${claude}].`)).toEqual(["flow-not-in-source"]);
+        expect(check(`User questions are sent to Sentry and Anthropic for triage [${sentry}, ${claude}].`)).toEqual(["flow-not-in-source"]);
+        expect(check(`User questions are sent to our AI provider, Anthropic [${claude}].`)).toEqual(["flow-not-in-source"]);
+        expect(check(`User questions are sent to our AI provider, Anthropic, which replies [${claude}].`)).toEqual(["flow-not-in-source"]);
+        expect(check(`User questions are sent to a queue and to Anthropic [${claude}].`)).toEqual(["flow-not-in-source"]);
+        expect(check(`User questions are sent to OpenAI's GPT-4o model [${gpt}].`)).toEqual(["flow-not-in-source"]);
+        expect(check(`The server sends what users type to Anthropic for a reply [${claude}].`)).toEqual(["flow-not-in-source"]);
+        expect(check(`User questions sent to Anthropic are stored by Anthropic [${claude}].`)).toEqual(["flow-not-in-source"]);
+        expect(check(`User questions are sent to Sentry and also Anthropic [${sentry}, ${claude}].`)).toEqual(["flow-not-in-source"]);
       });
     });
 
