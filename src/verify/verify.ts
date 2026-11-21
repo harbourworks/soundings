@@ -25,6 +25,7 @@ export type IssueCode =
   | "place-not-in-source"
   | "absence-contradicts-source"
   | "presence-from-not-found"
+  | "flow-not-in-source"
   | "unqualified-inference"
   | "low-confidence-fact"
   | "overclaim"
@@ -62,6 +63,8 @@ const VENDOR_POSITION = /\b(?:by|in|to|with)\s+["'“‘(]?([A-Z][\w.&-]*(?:\s+[
 const NOT_VENDORS = new Set(
   "soundings seaworthy dynamo markdown html json csv pdf word docx xlsx yaml section table appendix part figure article chapter page step the this that these those a an our your their its it january february march april may june july august september october november december monday tuesday wednesday thursday friday saturday sunday english".split(" "),
 );
+/** Wording that says data goes to someone: "sent to", "sends … to", "shared with", "passed to", "included in prompts". docs/verify.md lists these. */
+const SENT_TO = /\b(?:(?:send|sends|sent|sending|pass|passes|passed|passing|transmit|transmits|transmitted|transmitting|forward|forwards|forwarded|forwarding|upload|uploads|uploaded|uploading)\b(?:\s+[^\s.;:]+){0,8}?\s+to|(?:share|shares|shared|sharing)\b(?:\s+[^\s.;:]+){0,8}?\s+with|included\s+in\s+(?:\w+\s+)?prompts?)\b/gi;
 const PROJECT_LANGUAGE = /\b(we|our|ours|the (?:app|application|system|service|platform|product|project|code|codebase)|this (?:app|application|system|service|platform|product))\b/i;
 
 interface Block {
@@ -203,6 +206,11 @@ export function verifyText(source: string, evidence: EvidenceFile, answers: Answ
       const allNotFound = citedFacts.every((f) => f.claimType === "not-found");
       if (saysAbsent && allObserved) add("error", "absence-contradicts-source", b, "Says something is absent or not done, but the cited fact shows it is present.");
       if (!saysAbsent && allNotFound) add("error", "presence-from-not-found", b, 'States something is present, but the only cited fact is a "not found" result.');
+      if (!saysAbsent) {
+        for (const provider of unsupportedFlows(body, citedFacts)) {
+          add("error", "flow-not-in-source", b, `Says data is sent to ${provider}, but the cited facts only show that ${provider}'s SDK is used, not that data flows to it.`);
+        }
+      }
     }
 
     // 4. How sure the source is must show in the wording.
@@ -231,6 +239,59 @@ export function verifyText(source: string, evidence: EvidenceFile, answers: Answ
 /** The one decision behind both the exit code and the summary line: errors fail, and with `--strict` so do warnings. */
 export function verifyFailed(report: VerifyReport, strict: boolean): boolean {
   return !report.ok || (strict && report.issues.length > 0);
+}
+
+/**
+ * AI providers a sentence says data is sent to, named as the recipient of the sending wording ("sent to …"), whose
+ * only cited fact is the `ai_provider` one (the SDK is used) with no cited `data_flow` fact for the same subject.
+ */
+function unsupportedFlows(body: string, citedFacts: EvidenceFile["facts"]): string[] {
+  const matches = [...body.matchAll(SENT_TO)];
+  if (matches.length === 0) return [];
+  const subjects = citedFacts.map((f) => f.subject);
+  const named = matches.flatMap((m, i) => {
+    const start = m.index! + m[0].length;
+    return entitiesIn(recipientOf(body.slice(start, matches[i + 1]?.index ?? body.length)), subjects);
+  });
+  const flows = new Set(citedFacts.filter((f) => f.kind === "data_flow").map((f) => f.subject));
+  const out: string[] = [];
+  for (const f of citedFacts) {
+    if (f.kind !== "ai_provider" || f.claimType !== "observed" || flows.has(f.subject) || out.includes(f.subject)) continue;
+    const subject = lower(f.subject);
+    // "Bedrock" names "AWS Bedrock": a known name that is a whole word of the subject counts.
+    if (named.some((e) => e === subject || new RegExp(`(?<![\\w])${e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w])`).test(subject))) out.push(f.subject);
+  }
+  return out;
+}
+
+/**
+ * Where a clause ends after "sent to …": punctuation, a new clause ("and the app …", "and it …", "after", "which",
+ * "while"), or a verb ("questions are …"). A recipient is a short noun phrase, so nothing past this is one.
+ */
+const RECIPIENT_END = /[;:()[\]]|\s(?:(?:and|but|or|then)\s+(?:the|it|its|we|our|they|their|this|that|these|those|you|your|he|she|i)\b|(?:after|before|which|while|whereas|when|whenever|once|until|because|since|if|unless|where|who|whom|whose|then|but|so|is|are|was|were|has|have|had|uses)\b)/i;
+/**
+ * A new clause whose subject is named after "and", "or" or a comma: "and OpenAI is used …", ", Anthropic handles …".
+ * The name is then the subject of its own verb, not a recipient. The verbs are listed (no guessing from a final "s",
+ * which would catch "Anthropic servers"), and the subject is one to three words that aren't a relative pronoun.
+ */
+const SUBJECT_CLAUSE = /(?:,\s*(?:(?:and|or)\s+)?|\s(?:and|or)\s+)(?:(?!(?:which|who|whom|whose|that|where|also|to|for|with|via)\b)[\w'’.-]+\s+){1,3}?(?:also\s+)?(?:is|are|was|were|has|have|had|uses|use|can|will|would|may|might|must|should|does|did|handles|powers|drafts|generates|writes|answers|returns|provides|runs|serves|processes|produces|creates|summarises|summarizes|classifies|translates|replies|responds)\b/i;
+/** Words allowed before the recipient's name: "the model hosted by Anthropic", "OpenAI and Anthropic". */
+const RECIPIENT_WORDS = 6;
+
+/**
+ * The recipient right after a sent-to wording: the text up to the end of its clause, limited to a short phrase. A
+ * comma ends it too, unless what follows continues a list of names ("to OpenAI, Anthropic and Cohere").
+ */
+function recipientOf(after: string): string {
+  const cuts = [after.search(RECIPIENT_END), after.search(SUBJECT_CLAUSE)].filter((i) => i !== -1);
+  const clause = cuts.length === 0 ? after : after.slice(0, Math.min(...cuts));
+  const [first = "", ...rest] = clause.split(",");
+  const kept = [first];
+  for (const part of rest) {
+    if (!/^\s*(?:(?:and|or)\s+)?[A-Z]/.test(part)) break;
+    kept.push(part);
+  }
+  return kept.join(",").trim().split(/\s+/).slice(0, RECIPIENT_WORDS + 1).join(" ");
 }
 
 /** The first capitalised name in a vendor position that the evidence never mentions. */
