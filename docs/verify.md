@@ -21,6 +21,7 @@ Each sentence about the project must point to a source, written `[EV-3acc7131]` 
 | `place-not-in-source` | A sentence names a place (London, Ireland, eu-west-2) its sources don't mention |
 | `absence-contradicts-source` | A sentence says something is absent or not done, but the cited fact shows it is present |
 | `presence-from-not-found` | A sentence says something is present, but the only cited fact is a "not found" result |
+| `flow-not-in-source` | A sentence says data is sent to an AI provider ("sent to", "sends … to", "passed to", "transmitted to", "forwarded to", "uploaded to", "shared with", "included in prompts", in any verb form), naming the provider as who receives it (right after the "to" or "with", in the same clause: "sent to the model hosted by Anthropic" counts, "sent to Sentry, and the app uses the Anthropic SDK" does not), and cites that provider's "uses the SDK" fact but no data-flow fact for it. The SDK fact only shows that the code uses the provider; that data reaches it is a separate data-flow fact. Not applied when the sentence also cites one of your answers, or says the data is not sent |
 | `unqualified-inference` | A sentence rests only on an inferred fact and doesn't say so ("appears to", "inferred from the code") |
 | `low-confidence-fact` | A sentence cites a low-confidence fact. Those stay out of documents until you confirm them |
 | `overclaim` | Wording that implies legal assurance: "compliant", "certified", "guaranteed", "fully secure" |
