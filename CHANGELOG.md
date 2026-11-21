@@ -2,6 +2,17 @@
 
 All notable changes to soundings-cli. Versions follow [semantic versioning](https://semver.org); while it's 0.x, a minor version can change behaviour.
 
+## 0.3.0 (21 November 2026)
+
+Local models, AI routers and Django databases are recognised, more OpenAI calls are traced, and `verify` catches more uncited claims.
+
+- **Ollama, LiteLLM and OpenRouter** are detected as AI providers: Ollama's client libraries in JavaScript/TypeScript (`ollama`, including `ollama/browser`) and Python (`ollama`, `langchain_ollama`), LiteLLM in Python (`litellm`), and OpenRouter in JavaScript/TypeScript (`@openrouter/sdk`, `@openrouter/ai-sdk-provider`). The Ollama fact says the scan can't tell where the Ollama server runs, and never says data stays local; it asks instead (`UQ-ollama-server-location`). The LiteLLM and OpenRouter facts say the vendors they route to aren't identified, and ask which ones (`UQ-litellm-routed-vendors`, `UQ-openrouter-routed-vendors`). Each also raises the usual data-use question. Prompts sent through Ollama's `chat` and `generate`, LiteLLM's `litellm.completion` and `litellm.acompletion`, and OpenRouter's `chat.send` are traced. `@openrouter/ai-sdk-provider` used with `generateText` or `streamText` is now reported as OpenRouter, not as "Vercel AI SDK". Not read yet: `completion` imported by name, LangChain's `ChatOllama` calls, embedding calls, the `ollama-ai-provider` package and LiteLLM's proxy configuration.
+- **OpenAI structured-output and image calls** are traced as prompts sent to OpenAI: `responses.parse`, `chat.completions.parse`, `beta.chat.completions.parse`, `images.generate` and `images.edit`, when called on a client object (`client.images.generate(…)`). Before, a project using only these calls got an OpenAI provider fact but no "Data sent to other services" entry.
+- **Django databases** are read from `DATABASES` in the project's settings. Django's own PostgreSQL (including PostGIS), SQLite (including SpatiaLite), MySQL and Oracle backends are reported at high confidence, cited to the `ENGINE` line. Comments, docstrings and test settings are ignored. When the engine can't be read (`env.db()`, `dj_database_url`, a variable or a third-party backend) but the project has Django models or migrations, the report says "SQL database (Django)" at medium confidence, so a Django project is no longer reported as "No database found". A found database raises its hosting and retention questions. Oracle is now recognised as a specific SQL engine.
+- **`soundings verify`** warns on two more kinds of uncited sentence: one that puts a capitalised name the evidence doesn't mention where a vendor would go ("Payments are handled by PayPal"), and a sweeping negative about data ("No user content is ever sent to an AI provider"). These are warnings, so they fail the run only with `--strict`. The name LiteLLM is now checked too: a sentence that names it must cite a source that names it.
+- **`soundings verify --strict`** now prints `Failed` when warnings fail the run. Before, it could print `Passed.` while exiting with 1. Exit codes are unchanged.
+- The README's description of `verify` now says what it fails and what it only warns about.
+
 ## 0.2.1 (17 November 2026)
 
 Prompts sent through renamed imports are now traced.

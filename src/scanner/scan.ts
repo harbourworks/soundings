@@ -61,11 +61,11 @@ function unanalysedQuestion(unsupported: ReturnType<typeof unsupportedCode>): Un
   };
 }
 
-const SPECIFIC_SQL = new Set(["PostgreSQL", "MySQL", "Supabase Postgres", "SQLite", "SQL Server", "CockroachDB"]);
-/** Facts that only know "some SQL database", from a library that can sit on any engine. */
-const GENERIC_SQL = new Set(["SQL database (SQLAlchemy)", "SQL database (Prisma)", "SQL database (Drizzle)"]);
+const SPECIFIC_SQL = new Set(["PostgreSQL", "MySQL", "Supabase Postgres", "SQLite", "SQL Server", "CockroachDB", "Oracle"]);
+/** Facts that only know "some SQL database", from a library or framework that can sit on any engine. */
+const GENERIC_SQL = new Set(["SQL database (SQLAlchemy)", "SQL database (Prisma)", "SQL database (Drizzle)", "SQL database (Django)"]);
 /** ORMs talk to a database through a driver. Earlier in this list wins when two report the same engine. */
-const ORMS = ["data-store/prisma", "data-store/drizzle"];
+const ORMS = ["data-store/prisma", "data-store/drizzle", "data-store/django"];
 /** A driver import ranks above any ORM; -1 sorts first. */
 const ormRank = (f: FactDraft) => ORMS.indexOf(f.detector);
 

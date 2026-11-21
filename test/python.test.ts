@@ -170,3 +170,129 @@ describe("python detectors", () => {
     expect(both.facts.filter((f) => f.subject === "PostgreSQL").map((f) => f.detector)).toEqual(["data-store/postgres"]);
   });
 });
+
+describe("django databases", () => {
+  const settings = (engine: string, extra = "") => `import os\n\n${extra}DATABASES = {\n    "default": {\n        "ENGINE": ${engine},\n        "NAME": "app",\n    }\n}\n`;
+  const models = "from django.db import models\n\n\nclass Note(models.Model):\n    body = models.TextField()\n";
+  const migration = "from django.db import migrations, models\n\n\nclass Migration(migrations.Migration):\n    operations = [migrations.CreateModel(name='Note', fields=[])]\n";
+  const stores = (files: Record<string, string>) => evidenceOf(files).facts.filter((f) => f.kind === "data_store");
+
+  it.each([
+    ['"django.db.backends.postgresql"', "PostgreSQL", "postgresql"],
+    ["'django.db.backends.postgresql_psycopg2'", "PostgreSQL", "postgresql"],
+    ['"django.db.backends.sqlite3"', "SQLite", "sqlite"],
+    ['"django.db.backends.mysql"', "MySQL", "mysql"],
+    ['"django.db.backends.oracle"', "Oracle", "oracle"],
+  ])("reads ENGINE %s as %s, at the ENGINE line", (engine, subject, attr) => {
+    const [f, ...rest] = stores({ "site/settings.py": settings(engine) });
+    expect(rest).toEqual([]);
+    expect(f).toMatchObject({ subject, detector: "data-store/django", confidence: "high", claimType: "observed", attributes: { engine: attr } });
+    expect(f!.claim).toBe(`The project's Django settings name ${subject} as a database engine (DATABASES ENGINE).`);
+    expect(f!.locations).toEqual([{ file: "site/settings.py", line: 5 }]);
+  });
+
+  it("reads annotated, single-line, single-quoted and CRLF settings", () => {
+    const subject = (code: string) => stores({ "site/settings.py": code }).map((f) => `${f.subject}|${f.locations?.[0]?.line}`);
+    expect(subject('from typing import Any\nDATABASES: dict[str, Any] = {"default": {"ENGINE": "django.db.backends.mysql"}}\n')).toEqual(["MySQL|2"]);
+    expect(subject("DATABASES={'default':{'ENGINE':'django.db.backends.sqlite3','NAME':'db'}}\n")).toEqual(["SQLite|1"]);
+    expect(subject("DATABASES = {\r\n    'default': {\r\n        'ENGINE': 'django.contrib.gis.db.backends.postgis',\r\n    }\r\n}\r\n")).toEqual(["PostgreSQL|3"]);
+    expect(subject('DATABASES == {"default": {"ENGINE": "django.db.backends.mysql"}}\n')).toEqual(["No database found|undefined"]);
+  });
+
+  it("reports a backend outside Django as one it can't tell, not as a guess", () => {
+    const s = stores({ "site/settings.py": settings('"mssql"'), "notes/models.py": models });
+    expect(s.map((f) => `${f.subject}|${f.confidence}`)).toEqual(["SQL database (Django)|medium"]);
+  });
+
+  it("asks where the database is hosted and how long data is kept", () => {
+    const ids = evidenceOf({ "site/settings.py": settings('"django.db.backends.postgresql"') }).unknowns.map((u) => u.id);
+    expect(ids).toEqual(["UQ-postgresql-hosting", "UQ-retention-deletion"]);
+  });
+
+  it.each([
+    ["env.db()", "import environ\nenv = environ.Env()\nDATABASES = {\"default\": env.db()}\n"],
+    ["dj_database_url.config()", "import dj_database_url\nDATABASES = {\"default\": dj_database_url.config(conn_max_age=600)}\n"],
+    ["a variable", settings("DB_ENGINE", 'DB_ENGINE = os.environ["DB_ENGINE"]\n')],
+    ["an environment default", settings('os.environ.get("DB_ENGINE", "django.db.backends.sqlite3")')],
+    ["an f-string", settings('f"django.db.backends.{kind}"', 'kind = "mysql"\n')],
+  ])("reports an engine it can't read (%s) as a medium SQL database, never none-found", (_, code) => {
+    const e = evidenceOf({ "site/settings.py": code, "notes/models.py": models });
+    const s = e.facts.filter((f) => f.kind === "data_store");
+    expect(s.map((f) => `${f.subject}|${f.confidence}|${f.detector}`)).toEqual(["SQL database (Django)|medium|data-store/django"]);
+    expect(s[0]!.claim).toBe("The project uses Django's database layer (models or migrations), but the scan could not tell which database engine its settings name.");
+    expect(s[0]!.locations?.map((l) => l.file).sort()).toEqual(["notes/models.py", "site/settings.py"]);
+    expect(e.unknowns.map((u) => u.id).sort()).toEqual(["UQ-retention-deletion", "UQ-sql-database-hosting"]);
+  });
+
+  it("never says none-found when the project has Django models or migrations, even without settings", () => {
+    expect(stores({ "notes/models.py": models }).map((f) => `${f.subject}|${f.confidence}`)).toEqual(["SQL database (Django)|medium"]);
+    const m = stores({ "notes/migrations/__init__.py": "", "notes/migrations/0001_initial.py": migration });
+    expect(m.map((f) => `${f.subject}|${f.confidence}`)).toEqual(["SQL database (Django)|medium"]);
+    expect(m[0]!.locations).toEqual([{ file: "notes/migrations/0001_initial.py", line: 1 }]);
+  });
+
+  it("ignores ENGINE in comments, docstrings, test settings, other dicts and functions", () => {
+    const decoys = {
+      "site/settings.py": '"""Uses "ENGINE": "django.db.backends.mysql" in DATABASES."""\n# DATABASES = {"default": {"ENGINE": "django.db.backends.oracle"}}\nCACHES = {"default": {"ENGINE": "django.db.backends.sqlite3"}}\nNAMES = ["django.db.backends.postgresql"]\n',
+      "site/local.py": 'def configure():\n    DATABASES = {"default": {"ENGINE": "django.db.backends.mysql"}}\n    return DATABASES\n',
+      "tests/settings.py": settings('"django.db.backends.sqlite3"'),
+      "site/test_settings.py": settings('"django.db.backends.sqlite3"'),
+    };
+    expect(stores(decoys).map((f) => f.subject)).toEqual(["No database found"]);
+  });
+
+  it("leaves out test settings in a settings package, so an unreadable product engine stays a medium SQL database", () => {
+    const s = stores({
+      "config/settings/base.py": 'import environ\nenv = environ.Env()\nDATABASES = {"default": env.db("DATABASE_URL")}\n',
+      "config/settings/test.py": 'DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}}\n',
+      "shop/models.py": models,
+    });
+    expect(s.map((f) => `${f.subject}|${f.confidence}`)).toEqual(["SQL database (Django)|medium"]);
+    expect(s[0]!.locations?.map((l) => l.file).sort()).toEqual(["config/settings/base.py", "shop/models.py"]);
+  });
+
+  it.each(["test.py", "tests.py", "testing.py"])("treats %s in a settings package or beside settings.py as test settings", (name) => {
+    const sqlite = 'DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3"}}\n';
+    const s = stores({
+      "config/settings/production.py": settings('"django.db.backends.postgresql"'),
+      [`config/settings/${name}`]: sqlite,
+      [`site/${name}`]: sqlite,
+      "site/settings.py": settings('"django.db.backends.postgresql"'),
+    });
+    expect(s.map((f) => `${f.subject}|${f.locations?.map((l) => l.file).join(",")}`)).toEqual([
+      "PostgreSQL|config/settings/production.py,site/settings.py",
+    ]);
+  });
+
+  it("keeps base, local, production and other settings modules", () => {
+    const s = stores({
+      "config/settings/base.py": settings('"django.db.backends.postgresql"'),
+      "config/settings/local.py": settings('"django.db.backends.sqlite3"'),
+      "config/settings/production.py": settings('"django.db.backends.mysql"'),
+    });
+    expect(s.map((f) => f.subject).sort()).toEqual(["MySQL", "PostgreSQL", "SQLite"]);
+  });
+
+  it("does not take any 0001 file under migrations/ for a Django migration", () => {
+    expect(stores({ "db/migrations/0001_init.py": "import alembic\n" }).map((f) => f.subject)).toEqual(["No database found"]);
+  });
+
+  it("names each engine its settings set, once per engine", () => {
+    const code = 'DATABASES = {\n    "default": {"ENGINE": "django.db.backends.postgresql"},\n    "legacy": {"ENGINE": "django.db.backends.mysql"},\n    "replica": {"ENGINE": "django.db.backends.postgresql"},\n}\n';
+    const s = stores({ "site/settings.py": code, "site/settings_prod.py": code.replace(/\n {4}"legacy".*\n/, "\n") });
+    expect(s.map((f) => `${f.subject}|${f.locations?.map((l) => `${l.file}:${l.line}`).join(",")}`).sort()).toEqual([
+      "MySQL|site/settings.py:3",
+      "PostgreSQL|site/settings.py:2,site/settings_prod.py:2",
+    ]);
+  });
+
+  it("is one database when a driver import shows the same engine, and drops generic SQL once the engine is known", () => {
+    const pg = stores({ "site/settings.py": settings('"django.db.backends.postgresql"'), "app/raw.py": "import psycopg\n" });
+    expect(pg.map((f) => `${f.subject}|${f.detector}`)).toEqual(["PostgreSQL|data-store/postgres"]);
+    expect(pg[0]!.locations).toEqual([{ file: "app/raw.py", line: 1 }, { file: "site/settings.py", line: 5 }]);
+    const sa = stores({ "site/settings.py": settings('"django.db.backends.sqlite3"'), "app/db.py": "import sqlalchemy\n" });
+    expect(sa.map((f) => f.subject)).toEqual(["SQLite"]);
+    const generic = stores({ "site/settings.py": "DATABASES = {'default': env.db()}\n", "notes/models.py": models, "app/raw.py": "import psycopg\n" });
+    expect(generic.map((f) => f.subject)).toEqual(["PostgreSQL"]);
+  });
+});
