@@ -242,13 +242,17 @@ export function verifyFailed(report: VerifyReport, strict: boolean): boolean {
 }
 
 /**
- * AI providers a sentence says data is sent to, named after the sending wording ("sent to …"), whose only cited
- * fact is the `ai_provider` one (the SDK is used) with no cited `data_flow` fact for the same subject.
+ * AI providers a sentence says data is sent to, named as the recipient of the sending wording ("sent to …"), whose
+ * only cited fact is the `ai_provider` one (the SDK is used) with no cited `data_flow` fact for the same subject.
  */
 function unsupportedFlows(body: string, citedFacts: EvidenceFile["facts"]): string[] {
-  const ends = [...body.matchAll(SENT_TO)].map((m) => m.index! + m[0].length);
-  if (ends.length === 0) return [];
-  const named = entitiesIn(body.slice(Math.min(...ends)), citedFacts.map((f) => f.subject));
+  const matches = [...body.matchAll(SENT_TO)];
+  if (matches.length === 0) return [];
+  const subjects = citedFacts.map((f) => f.subject);
+  const named = matches.flatMap((m, i) => {
+    const start = m.index! + m[0].length;
+    return entitiesIn(recipientOf(body.slice(start, matches[i + 1]?.index ?? body.length)), subjects);
+  });
   const flows = new Set(citedFacts.filter((f) => f.kind === "data_flow").map((f) => f.subject));
   const out: string[] = [];
   for (const f of citedFacts) {
@@ -258,6 +262,30 @@ function unsupportedFlows(body: string, citedFacts: EvidenceFile["facts"]): stri
     if (named.some((e) => e === subject || new RegExp(`(?<![\\w])${e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w])`).test(subject))) out.push(f.subject);
   }
   return out;
+}
+
+/**
+ * Where a clause ends after "sent to …": punctuation, a new clause ("and the app …", "and it …", "after", "which",
+ * "while"), or a verb ("questions are …"). A recipient is a short noun phrase, so nothing past this is one.
+ */
+const RECIPIENT_END = /[;:()[\]]|\s(?:(?:and|but|or|then)\s+(?:the|it|its|we|our|they|their|this|that|these|those|you|your|he|she|i)\b|(?:after|before|which|while|whereas|when|whenever|once|until|because|since|if|unless|where|who|whom|whose|then|but|so|is|are|was|were|has|have|had|uses)\b)/i;
+/** Words allowed before the recipient's name: "the model hosted by Anthropic", "OpenAI and Anthropic". */
+const RECIPIENT_WORDS = 6;
+
+/**
+ * The recipient right after a sent-to wording: the text up to the end of its clause, limited to a short phrase. A
+ * comma ends it too, unless what follows continues a list of names ("to OpenAI, Anthropic and Cohere").
+ */
+function recipientOf(after: string): string {
+  const cut = after.search(RECIPIENT_END);
+  const clause = cut === -1 ? after : after.slice(0, cut);
+  const [first = "", ...rest] = clause.split(",");
+  const kept = [first];
+  for (const part of rest) {
+    if (!/^\s*(?:(?:and|or)\s+)?[A-Z]/.test(part)) break;
+    kept.push(part);
+  }
+  return kept.join(",").trim().split(/\s+/).slice(0, RECIPIENT_WORDS + 1).join(" ");
 }
 
 /** The first capitalised name in a vendor position that the evidence never mentions. */

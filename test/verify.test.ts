@@ -148,6 +148,61 @@ describe("each kind of bad output is rejected", () => {
       expect(codes(`Ticket text is sent to the model hosted by Anthropic [${anthropic}].`, ticketApi)).toEqual(["flow-not-in-source"]);
     });
 
+    describe("counts only a provider that receives the sending, not one named in another clause", () => {
+      const withSentry = evidenceOf({
+        "package.json": pkg(["openai", "@anthropic-ai/sdk", "@sentry/node"]),
+        "server.ts": [
+          'import OpenAI from "openai";',
+          'import Anthropic from "@anthropic-ai/sdk";',
+          'import * as Sentry from "@sentry/node";',
+          "Sentry.init({ dsn: process.env.SENTRY_DSN });",
+          "const openai = new OpenAI();",
+          "const anthropic = new Anthropic();",
+          "export async function ping() {",
+          '  await openai.chat.completions.create({ model: "gpt-4o-mini", messages: [{ role: "user", content: "Say hello." }] });',
+          '  await anthropic.messages.create({ model: "claude-haiku-5-5", max_tokens: 10, messages: [{ role: "user", content: "Say hello." }] });',
+          "}",
+        ].join("\n"),
+      });
+      const claude = idOf(withSentry, (f) => f.subject === "Anthropic" && f.kind === "ai_provider");
+      const gpt = idOf(withSentry, (f) => f.subject === "OpenAI" && f.kind === "ai_provider");
+      const sentry = idOf(withSentry, (f) => f.subject === "Sentry");
+      const check = (s: string) => codes(s, withSentry, emptyAnswers());
+
+      it("has no data_flow fact to cite", () => {
+        expect(withSentry.facts.some((f) => f.kind === "data_flow")).toBe(false);
+      });
+
+      // The ids are filled in per case, as the scan above runs when the suite is collected.
+      it.each([
+        ["Errors are sent to Sentry, and the app uses the Anthropic SDK [SENTRY, CLAUDE]."],
+        ["Logs are sent to standard output and the app uses the OpenAI SDK from server code [GPT]."],
+        ["Users upload a CSV file to the dashboard; the app uses the OpenAI SDK [GPT]."],
+        ["Replies are sent to users after Anthropic drafts them [CLAUDE]."],
+        ["Errors are sent to Sentry, which the app uses alongside Anthropic [SENTRY, CLAUDE]."],
+        ["Errors are sent to Sentry while the app uses Anthropic for chat [SENTRY, CLAUDE]."],
+        ["Errors are sent to Sentry and it also uses Anthropic [SENTRY, CLAUDE]."],
+        ["Errors are sent to Sentry and we use Anthropic for chat [SENTRY, CLAUDE]."],
+      ])("passes a true sentence where the provider is outside the sent-to clause: %s", (s) => {
+        expect(check(s.replace("SENTRY", sentry).replace("CLAUDE", claude).replace("GPT", gpt))).toEqual([]);
+      });
+
+      it("still fails a provider that follows a second sent-to wording in a later clause", () => {
+        expect(check(`Errors are sent to Sentry and questions are sent to Anthropic [${sentry}, ${claude}].`)).toEqual(["flow-not-in-source"]);
+        expect(check(`Errors are sent to Sentry, and questions are shared with OpenAI [${sentry}, ${gpt}].`)).toEqual(["flow-not-in-source"]);
+      });
+
+      it("still fails a provider in the recipient position, after a short lead", () => {
+        expect(check(`Each user question is sent over HTTPS to OpenAI [${gpt}].`)).toEqual(["flow-not-in-source"]);
+        expect(check(`User questions are sent to the model hosted by Anthropic [${claude}].`)).toEqual(["flow-not-in-source"]);
+        expect(check(`Support tickets are sent to Anthropic's API for triage [${claude}].`)).toEqual(["flow-not-in-source"]);
+        expect(check(`User questions are shared with OpenAI and Anthropic [${gpt}, ${claude}].`)).toEqual(["flow-not-in-source", "flow-not-in-source"]);
+        expect(check(`User questions are sent to Sentry and Anthropic [${sentry}, ${claude}].`)).toEqual(["flow-not-in-source"]);
+        expect(check(`User questions are sent to Sentry, OpenAI and Anthropic [${sentry}, ${gpt}, ${claude}].`)).toEqual(["flow-not-in-source", "flow-not-in-source"]);
+        expect(check(`User questions are sent to the model used by Anthropic [${claude}].`)).toEqual(["flow-not-in-source"]);
+      });
+    });
+
     it("leaves a sentence that also cites the user's own answer", () => {
       const a = setAnswer(emptyAnswers(), "profile.log-retention", "Ticket text is sent to Anthropic.", NOW);
       expect(codes(`Ticket text is sent to Anthropic [${anthropic}, A-001].`, ticketApi, a)).toEqual([]);
