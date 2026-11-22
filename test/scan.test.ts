@@ -68,6 +68,26 @@ describe("OpenAI prompts in the notes-saas fixture", () => {
   });
 });
 
+describe("Gemini prompts passed positionally", () => {
+  // The answer key can't hold a per-file decoy for a subject that also has a real flow, so these pin
+  // the locations: the fixed-text calls in src/models/gemini-warmup.ts and app/warmup.py are decoys.
+  const flows = (name: string) =>
+    scan({ root: join(ROOT, "apps", name), now: NOW })
+      .evidence.facts.filter((f) => f.kind === "data_flow" && f.subject === "Google AI")
+      .map((f) => ({ confidence: f.confidence, claim: f.claim, locations: f.locations }));
+  const claim = "Text taken from a request or function input is included in prompts sent to Google AI.";
+
+  it("points at the generateContent and generateContentStream calls that send user text, not the fixed-text warm-up", () => {
+    expect(flows("express-pg")).toEqual([
+      { confidence: "high", claim, locations: [{ file: "src/models/gemini-answer.ts", line: 7 }, { file: "src/models/gemini-outline.ts", line: 7 }] },
+    ]);
+  });
+
+  it("points at the Python generate_content call that sends user text, not the fixed-text warm-up", () => {
+    expect(flows("fastapi-rag")).toEqual([{ confidence: "high", claim, locations: [{ file: "app/summarise.py", line: 7 }] }]);
+  });
+});
+
 describe("privacy", () => {
   it("never lets a secret from the project reach the evidence", () => {
     const envSecret = rand(32);

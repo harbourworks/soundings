@@ -329,6 +329,93 @@ describe("data flow to AI providers", () => {
       expect(f ? { confidence: f.confidence, line: f.locations[0]?.line } : undefined).toEqual({ confidence: "high", line: 4 });
     });
   });
+
+  describe("a prompt passed positionally to Gemini's generateContent", () => {
+    const gHead = `import { GoogleGenerativeAI } from "@google/generative-ai";\nconst genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? "");\nconst model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });\n`;
+    const flows = (files: Record<string, string>, deps = ["@google/generative-ai"]) =>
+      evidenceOf({ "package.json": pkg(deps), ...files })
+        .facts.filter((f) => f.kind === "data_flow")
+        .map((f) => `${f.subject}|${f.confidence}|${f.locations.map((l) => `${l.file}:${l.line}`).join(",")}`);
+    const callIn = (body: string, before = "") => flows({ "src/ai.ts": `${gHead}${before}export async function ask(note: string, image: { inlineData: { data: string; mimeType: string } }) {\n  return ${body};\n}\n` });
+
+    it("flags the issue's reproduction: a template literal built from a parameter, at the call line", () => {
+      const code = `import { GoogleGenerativeAI } from "@google/generative-ai";\n\nconst genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? "");\n\nexport async function summarise(note: string): Promise<string> {\n  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });\n  const result = await model.generateContent(\`Summarise this note: \${note}\`);\n  return result.response.text();\n}\n`;
+      const facts = evidenceOf({ "package.json": pkg(["@google/generative-ai", "express"]), "src/summarise.ts": code }).facts.filter((f) => f.kind === "data_flow");
+      expect(facts.map((f) => ({ subject: f.subject, confidence: f.confidence, claim: f.claim, locations: f.locations }))).toEqual([
+        {
+          subject: "Google AI",
+          confidence: "high",
+          claim: "Text taken from a request or function input is included in prompts sent to Google AI.",
+          locations: [{ file: "src/summarise.ts", line: 7 }],
+        },
+      ]);
+    });
+
+    it("flags a parameter passed as the whole prompt", () => {
+      expect(callIn("model.generateContent(note)")).toEqual(["Google AI|high|src/ai.ts:5"]);
+    });
+
+    it("flags generateContentStream the same way", () => {
+      expect(callIn("model.generateContentStream(`Reply to: ${note}`)")).toEqual(["Google AI|high|src/ai.ts:5"]);
+    });
+
+    it("flags a prompt joined with + and an array of parts", () => {
+      expect(callIn(`model.generateContent("Summarise: " + note)`)).toEqual(["Google AI|high|src/ai.ts:5"]);
+      expect(callIn(`model.generateContent(["Describe this image.", image])`)).toEqual(["Google AI|high|src/ai.ts:5"]);
+    });
+
+    it("flags a request value passed positionally", () => {
+      const code = `${gHead}export async function POST(req: Request) {\n  const body = await req.json();\n  return model.generateContent(\`Answer: \${body.text}\`);\n}\n`;
+      expect(flows({ "app/api/ask/route.ts": code })).toEqual(["Google AI|high|app/api/ask/route.ts:6"]);
+    });
+
+    it("gives medium when the positional prompt's source isn't clear", () => {
+      expect(callIn("model.generateContent(STYLE_GUIDE)", `import { STYLE_GUIDE } from "./prompts";\n`)).toEqual(["Google AI|medium|src/ai.ts:6"]);
+    });
+
+    it("ignores a fixed string, and a template with no expressions (decoys)", () => {
+      expect(callIn(`model.generateContent("ping")`)).toEqual([]);
+      expect(callIn("model.generateContent(`ping`)")).toEqual([]);
+      expect(callIn("model.generateContentStream('Say hello.')")).toEqual([]);
+      expect(callIn(`model.generateContent("Say " + "hello.")`)).toEqual([]);
+    });
+
+    it("does not read a local generateContent helper in a file that imports no provider (near-miss)", () => {
+      const helper = `export function generateContent(x: string) {\n  return x.trim();\n}\nexport function tidy(note: string) {\n  return generateContent(note);\n}\nexport const page = { generateContent: (x: string) => x };\nexport const out = (note: string) => page.generateContent(note);\n`;
+      expect(flows({ "src/ai.ts": `${gHead}export const ping = () => model.generateContent("ping");\n`, "src/text.ts": helper })).toEqual([]);
+    });
+
+    it("does not read generateContent(x) positionally in a file that imports another provider but not Google's SDK (near-miss)", () => {
+      const seo = `import OpenAI from "openai";\nconst openai = new OpenAI();\nconst cms = { generateContent: (slug: string) => slug };\n\nexport async function tagline() {\n  const r = await openai.chat.completions.create({ model: "gpt-4o-mini", messages: [{ role: "user", content: "Write a tagline." }] });\n  return r.choices[0]?.message.content;\n}\n\nexport async function page(slug: string) {\n  return cms.generateContent(slug);\n}\n`;
+      expect(flows({ "src/seo.ts": seo }, ["openai"])).toEqual([]);
+      expect(flows({ "src/seo.ts": seo.replace("cms.generateContent(slug)", "cms.generateContentStream(`Page: ${slug}`)") }, ["openai"])).toEqual([]);
+      // @ai-sdk/google is the Vercel AI SDK's provider, not Google's own SDK, so it does not turn the read on either.
+      const vercel = `import { google } from "@ai-sdk/google";\nexport const m = google("gemini-2.5-flash");\nconst cms = { generateContent: (slug: string) => slug };\nexport const page = (slug: string) => cms.generateContent(slug);\n`;
+      expect(flows({ "src/seo.ts": vercel }, ["@ai-sdk/google"])).toEqual([]);
+    });
+
+    it("reads the positional prompt with either Google SDK, also next to another provider's import", () => {
+      const both = `import OpenAI from "openai";\nimport { GoogleGenAI } from "@google/genai";\nconst ai = new GoogleGenAI({});\nexport const o = new OpenAI();\nexport function ask(note: string) {\n  return ai.models.generateContentStream(note);\n}\n`;
+      expect(flows({ "src/ai.ts": both }, ["openai", "@google/genai"]).sort()).toEqual(["Google AI|high|src/ai.ts:6", "OpenAI|high|src/ai.ts:6"]);
+    });
+
+    it("does not read a bare generateContent(x) call positionally, even in a file that imports the SDK", () => {
+      expect(callIn("generateContent(note)", `const generateContent = (x: string) => x;\n`)).toEqual([]);
+    });
+
+    it("still reads the object form, and leaves the object form's fixed text alone", () => {
+      const newSdk = `import { GoogleGenAI } from "@google/genai";\nconst ai = new GoogleGenAI({});\nexport function ask(note: string) {\n  return ai.models.generateContent({ model: "gemini-2.5-flash", contents: note });\n}\n`;
+      expect(flows({ "src/ai.ts": newSdk }, ["@google/genai"])).toEqual(["Google AI|high|src/ai.ts:4"]);
+      expect(flows({ "src/ai.ts": newSdk.replace("contents: note", `contents: "ping"`) }, ["@google/genai"])).toEqual([]);
+    });
+
+    // Other SDKs take an options object, so a variable there is not itself the prompt: reading it
+    // positionally would report fixed options as variable content. That shape is left as it was.
+    it("does not read a positional options variable for other providers' calls", () => {
+      const code = `${head}const params = { model: "m", messages: [{ role: "user" as const, content: "Say hello." }] };\nexport const r = client.chat.completions.create(params);\n`;
+      expect(flow({ "ai.ts": code })).toBeUndefined();
+    });
+  });
 });
 
 describe("third-party services", () => {

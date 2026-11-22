@@ -110,6 +110,29 @@
       "confidence": "high"
     },
     {
+      "kind": "ai_provider",
+      "subject": "Google AI",
+      "detector": "ai-provider/google-sdk",
+      "key": "src/models/gemini-answer.ts",
+      "files": [
+        "src/models/gemini-answer.ts",
+        "src/models/gemini-outline.ts",
+        "src/models/gemini-warmup.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "data_flow",
+      "subject": "Google AI",
+      "detector": "data-flow/ai-request-payload",
+      "key": "src/models/gemini-answer.ts",
+      "files": [
+        "src/models/gemini-answer.ts",
+        "src/models/gemini-outline.ts"
+      ],
+      "confidence": "high"
+    },
+    {
       "kind": "data_store",
       "subject": "PostgreSQL",
       "detector": "data-store/postgres",
@@ -214,6 +237,7 @@
     "anthropic-data-use",
     "aws-bedrock-data-use",
     "cohere-data-use",
+    "google-ai-data-use",
     "groq-data-use",
     "mistral-data-use",
     "ollama-data-use",

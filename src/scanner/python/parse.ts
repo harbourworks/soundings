@@ -303,13 +303,34 @@ const AI_CALL_TAILS: string[][] = [
   ["chat", "stream_async"],
 ];
 const CONTENT_KEYS: ReadonlySet<string> = new Set(["content", "prompt", "input", "contents", "text", "system", "messages", "query"]);
+/**
+ * Calls that take the prompt itself as their first argument (`model.generate_content(prompt)`), read only on a
+ * receiver and only when the caller says the file imports Google's own SDK (`positional` in `aiPayload`).
+ */
+const POSITIONAL_PROMPT_TAILS: string[][] = [["generate_content"], ["generate_content_async"]];
+
+/** The first positional argument's tokens, up to the first comma at the same depth, or null for a keyword or `*`/`**` argument. */
+function firstPositional(args: Tok[]): Tok[] | null {
+  if (isName(args[0]) && isOp(args[1], "=") && !isOp(args[2], "=")) return null;
+  if (isOp(args[0], "*") || isOp(args[0], "**")) return null;
+  const value: Tok[] = [];
+  let depth = 0;
+  for (const y of args) {
+    if (y.t === "op" && "([{".includes(y.s)) depth++;
+    else if (y.t === "op" && ")]}".includes(y.s)) depth--;
+    else if (depth === 0 && isOp(y, ",")) break;
+    value.push(y);
+  }
+  return value.length > 0 ? value : null;
+}
 
 /**
  * Model calls whose prompt comes from somewhere other than a fixed string. High when it traces to a
  * request or a function parameter (a caller supplies it), medium when it is dynamic but unclear.
  * `ownTails` are a provider's own call shapes, read only as a method on an object (`co.chat(...)`).
+ * `positional` reads `generate_content(prompt)`'s first argument as the prompt; pass it only for files that import Google's SDK.
  */
-export function aiPayload(lines: PyLine[], calls: PyCall[], funcs: PyFunc[], ownTails: string[][] = []): { confidence: "high" | "medium"; line: number } | null {
+export function aiPayload(lines: PyLine[], calls: PyCall[], funcs: PyFunc[], ownTails: string[][] = [], positional = false): { confidence: "high" | "medium"; line: number } | null {
   const params = new Set(funcs.flatMap((f) => f.params));
   for (const n of handlerInputs(funcs)) params.add(n);
   const reqVars = requestVariables(lines);
@@ -318,7 +339,8 @@ export function aiPayload(lines: PyLine[], calls: PyCall[], funcs: PyFunc[], own
   for (const c of calls) {
     if (!AI_CALL_TAILS.some((t) => callEndsWith(c.chain, t)) && !ownTails.some((t) => c.chain.length > t.length && callEndsWith(c.chain, t))) continue;
     const roots = new Set<string>();
-    for (const v of valuesOf(c.args, CONTENT_KEYS)) {
+    const first = positional && c.chain.length > 1 && POSITIONAL_PROMPT_TAILS.some((t) => callEndsWith(c.chain, t)) ? firstPositional(c.args) : null;
+    for (const v of [...(first ? [first] : []), ...valuesOf(c.args, CONTENT_KEYS)]) {
       if (v.length === 1 && v[0]!.t === "str" && !isFString(v[0]!.s)) continue; // a fixed string
       for (const n of dependsOn(v)) roots.add(n);
     }

@@ -12,6 +12,7 @@
     "jsonwebtoken": "9.0.0",
     "pino": "9.0.0",
     "ollama": "0.5.0",
-    "@openrouter/sdk": "0.1.0"
+    "@openrouter/sdk": "0.1.0",
+    "@google/generative-ai": "0.21.0"
   }
 }

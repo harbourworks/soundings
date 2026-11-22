@@ -98,6 +98,41 @@ describe("python detectors", () => {
     expect(flow(mistral.replace("'content': q", "'content': 'Say hello.'"))).toEqual([]);
   });
 
+  it("traces a prompt passed positionally to Gemini's generate_content, and ignores a fixed one", () => {
+    const flow = (code: string) => evidenceOf({ "app/a.py": code }).facts.filter((f) => f.kind === "data_flow").map((f) => `${f.subject}|${f.confidence}|${f.locations?.[0]?.line}`);
+    const head = 'import google.generativeai as genai\n\nmodel = genai.GenerativeModel("gemini-2.5-flash")\n\n\n';
+    const ask = (call: string, before = "") => flow(`${head}${before}def summarise(prompt: str) -> str:\n    result = ${call}\n    return result.text\n`);
+    expect(ask("model.generate_content(prompt)")).toEqual(["Google AI|high|7"]);
+    expect(ask('model.generate_content(f"Summarise: {prompt}")')).toEqual(["Google AI|high|7"]);
+    expect(ask('model.generate_content(["Describe this image.", prompt], stream=True)')).toEqual(["Google AI|high|7"]);
+    expect(ask("await model.generate_content_async(prompt)").map((s) => s.replace(/\|\d+$/, ""))).toEqual(["Google AI|high"]);
+    expect(ask("model.generate_content(STYLE_GUIDE)", "from .prompts import STYLE_GUIDE\n")).toEqual(["Google AI|medium|8"]);
+    // Decoys: fixed text, an f-string with nothing in it, and a bare local helper of the same name.
+    expect(ask('model.generate_content("ping")')).toEqual([]);
+    expect(ask("model.generate_content('Say ' 'hello.', stream=True)")).toEqual([]);
+    expect(ask('model.generate_content(f"ping")')).toEqual([]);
+    expect(ask("generate_content(prompt)", "def generate_content(x):\n    return x\n\n\n")).toEqual([]);
+    // Unpacked arguments aren't the prompt itself, so they aren't read as one.
+    expect(flow(`${head}def ask(*parts, **options):\n    return model.generate_content(**options)\n`)).toEqual([]);
+    expect(flow(`${head}def ask(*parts, **options):\n    return model.generate_content(*parts)\n`)).toEqual([]);
+    // Keyword forms are read as before.
+    expect(ask('model.generate_content(contents=prompt)')).toEqual(["Google AI|high|7"]);
+    expect(ask('model.generate_content(contents="ping")')).toEqual([]);
+  });
+
+  it("reads generate_content positionally only in files that import Google's SDK (near-miss)", () => {
+    const flow = (code: string) => evidenceOf({ "main.py": code }).facts.filter((f) => f.kind === "data_flow").map((f) => `${f.subject}|${f.confidence}|${f.locations?.[0]?.line}`);
+    const seo = 'from openai import OpenAI\n\nclient = OpenAI()\n\n\ndef tagline():\n    r = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "Write a tagline."}])\n    return r.choices[0].message.content\n\n\ndef page(slug):\n    return pages.generate_content(slug)\n';
+    expect(flow(seo)).toEqual([]);
+    expect(flow(seo.replace("pages.generate_content(slug)", 'await pages.generate_content_async(f"Page: {slug}")'))).toEqual([]);
+    // LangChain's Google wrapper is not Google's own SDK, so it does not turn the read on.
+    expect(flow(seo.replace("from openai import OpenAI", "from openai import OpenAI\nfrom langchain_google_genai import ChatGoogleGenerativeAI"))).toEqual([]);
+    // Either Google SDK, in either import form, does.
+    const gemini = "\n\ndef page(slug):\n    return model.generate_content(slug)\n";
+    expect(flow(`from google import generativeai as genai${gemini}`)).toEqual(["Google AI|high|4"]);
+    expect(flow(`import google.genai${gemini}`)).toEqual(["Google AI|high|4"]);
+  });
+
   it("traces request text into Ollama and LiteLLM calls", () => {
     const flow = (code: string) => evidenceOf({ "a.py": code }).facts.filter((f) => f.kind === "data_flow").map((f) => `${f.subject}|${f.confidence}|${f.locations?.[0]?.line}`);
     const chat = "import ollama\n\ndef ask(q):\n    return ollama.chat(model='llama3', messages=[{'role': 'user', 'content': q}])\n";
