@@ -120,6 +120,19 @@ describe("python detectors", () => {
     expect(ask('model.generate_content(contents="ping")')).toEqual([]);
   });
 
+  it("reads generate_content positionally only in files that import Google's SDK (near-miss)", () => {
+    const flow = (code: string) => evidenceOf({ "main.py": code }).facts.filter((f) => f.kind === "data_flow").map((f) => `${f.subject}|${f.confidence}|${f.locations?.[0]?.line}`);
+    const seo = 'from openai import OpenAI\n\nclient = OpenAI()\n\n\ndef tagline():\n    r = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "Write a tagline."}])\n    return r.choices[0].message.content\n\n\ndef page(slug):\n    return pages.generate_content(slug)\n';
+    expect(flow(seo)).toEqual([]);
+    expect(flow(seo.replace("pages.generate_content(slug)", 'await pages.generate_content_async(f"Page: {slug}")'))).toEqual([]);
+    // LangChain's Google wrapper is not Google's own SDK, so it does not turn the read on.
+    expect(flow(seo.replace("from openai import OpenAI", "from openai import OpenAI\nfrom langchain_google_genai import ChatGoogleGenerativeAI"))).toEqual([]);
+    // Either Google SDK, in either import form, does.
+    const gemini = "\n\ndef page(slug):\n    return model.generate_content(slug)\n";
+    expect(flow(`from google import generativeai as genai${gemini}`)).toEqual(["Google AI|high|4"]);
+    expect(flow(`import google.genai${gemini}`)).toEqual(["Google AI|high|4"]);
+  });
+
   it("traces request text into Ollama and LiteLLM calls", () => {
     const flow = (code: string) => evidenceOf({ "a.py": code }).facts.filter((f) => f.kind === "data_flow").map((f) => `${f.subject}|${f.confidence}|${f.locations?.[0]?.line}`);
     const chat = "import ollama\n\ndef ask(q):\n    return ollama.chat(model='llama3', messages=[{'role': 'user', 'content': q}])\n";

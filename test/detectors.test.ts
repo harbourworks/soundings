@@ -385,6 +385,20 @@ describe("data flow to AI providers", () => {
       expect(flows({ "src/ai.ts": `${gHead}export const ping = () => model.generateContent("ping");\n`, "src/text.ts": helper })).toEqual([]);
     });
 
+    it("does not read generateContent(x) positionally in a file that imports another provider but not Google's SDK (near-miss)", () => {
+      const seo = `import OpenAI from "openai";\nconst openai = new OpenAI();\nconst cms = { generateContent: (slug: string) => slug };\n\nexport async function tagline() {\n  const r = await openai.chat.completions.create({ model: "gpt-4o-mini", messages: [{ role: "user", content: "Write a tagline." }] });\n  return r.choices[0]?.message.content;\n}\n\nexport async function page(slug: string) {\n  return cms.generateContent(slug);\n}\n`;
+      expect(flows({ "src/seo.ts": seo }, ["openai"])).toEqual([]);
+      expect(flows({ "src/seo.ts": seo.replace("cms.generateContent(slug)", "cms.generateContentStream(`Page: ${slug}`)") }, ["openai"])).toEqual([]);
+      // @ai-sdk/google is the Vercel AI SDK's provider, not Google's own SDK, so it does not turn the read on either.
+      const vercel = `import { google } from "@ai-sdk/google";\nexport const m = google("gemini-2.5-flash");\nconst cms = { generateContent: (slug: string) => slug };\nexport const page = (slug: string) => cms.generateContent(slug);\n`;
+      expect(flows({ "src/seo.ts": vercel }, ["@ai-sdk/google"])).toEqual([]);
+    });
+
+    it("reads the positional prompt with either Google SDK, also next to another provider's import", () => {
+      const both = `import OpenAI from "openai";\nimport { GoogleGenAI } from "@google/genai";\nconst ai = new GoogleGenAI({});\nexport const o = new OpenAI();\nexport function ask(note: string) {\n  return ai.models.generateContentStream(note);\n}\n`;
+      expect(flows({ "src/ai.ts": both }, ["openai", "@google/genai"]).sort()).toEqual(["Google AI|high|src/ai.ts:6", "OpenAI|high|src/ai.ts:6"]);
+    });
+
     it("does not read a bare generateContent(x) call positionally, even in a file that imports the SDK", () => {
       expect(callIn("generateContent(note)", `const generateContent = (x: string) => x;\n`)).toEqual([]);
     });

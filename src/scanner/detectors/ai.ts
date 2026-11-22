@@ -186,9 +186,12 @@ const AI_CALL_MODULES = new Set(["ai"]);
 const CONTENT_KEYS = new Set(["content", "prompt", "input", "contents", "text", "system", "messages"]);
 /**
  * Calls that take the prompt itself as their first argument (`model.generateContent(prompt)`), read only
- * on a receiver. Other SDKs take an options object there, so a variable in that place is not read as content.
+ * on a receiver and only in files that import Google's own SDK (`POSITIONAL_PROMPT_SDKS`). Other SDKs take
+ * an options object there, and other objects have methods of the same name, so elsewhere it is not read.
  */
 const POSITIONAL_PROMPT_TAILS: string[][] = [["generateContent"], ["generateContentStream"]];
+/** Google's own SDKs, whose `generateContent` takes the prompt positionally. */
+const POSITIONAL_PROMPT_SDKS = { js: ["@google/generative-ai", "@google/genai"], py: ["google.generativeai", "google.genai"] };
 /** Argument shapes that can carry text: a fixed string has no roots, so it still gives nothing. */
 const POSITIONAL_PROMPT_TYPES = new Set(["Identifier", "TemplateLiteral", "BinaryExpression", "ArrayExpression"]);
 
@@ -213,6 +216,7 @@ function payloadIn(f: JsFile, providers: ProviderSpec[]): { confidence: "high" |
     return (bound ??= localBinding(f.ast))(at, name) ? name : imported;
   };
   let best: { confidence: "high" | "medium"; line?: number } | null = null;
+  const positionalSdk = POSITIONAL_PROMPT_SDKS.js.some((m) => importsModule(f, m));
 
   const sends: Array<{ args: Node[]; line?: number; positional?: boolean }> = [];
   for (const call of calls(f.ast)) {
@@ -222,7 +226,7 @@ function payloadIn(f: JsFile, providers: ProviderSpec[]): { confidence: "high" |
       (call.chain !== null && call.chain.length === 1 && call.node.type === "CallExpression" && AI_CALL_FUNCTIONS.has(resolve(fnNames, call.chain[0]!, call.node.callee))) ||
       (call.chain !== null && ownTails.some((t) => call.chain!.length > t.length && endsWith(call.chain, t)));
     if (isAiCall && call.node.type === "CallExpression") {
-      const positional = call.chain!.length > 1 && POSITIONAL_PROMPT_TAILS.some((t) => endsWith(call.chain, t));
+      const positional = positionalSdk && call.chain!.length > 1 && POSITIONAL_PROMPT_TAILS.some((t) => endsWith(call.chain, t));
       sends.push({ args: call.node.arguments, ...(call.line ? { line: call.line } : {}), ...(positional ? { positional } : {}) });
     }
   }
@@ -268,7 +272,7 @@ const dataFlowDetector: Detector = {
     for (const f of ctx.py) {
       const providers = AI_PROVIDERS.filter((p) => p.pyModules.length > 0 && importsPy(f, ...p.pyModules));
       if (providers.length === 0) continue;
-      const payload = aiPayload(f.lines, f.calls, f.funcs, providers.flatMap((p) => p.calls?.py ?? []));
+      const payload = aiPayload(f.lines, f.calls, f.funcs, providers.flatMap((p) => p.calls?.py ?? []), !!importsPy(f, ...POSITIONAL_PROMPT_SDKS.py));
       if (!payload) continue;
       for (const p of providers) {
         facts.push({
