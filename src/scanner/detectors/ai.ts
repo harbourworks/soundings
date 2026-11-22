@@ -2,7 +2,7 @@ import type { FactDraft } from "../../evidence/build.js";
 import { walkAst } from "../../core/js.js";
 import type { Node } from "@babel/types";
 import { calls, chainOf, dynamicRoots, endsWith, firstStringProperty, lineOf, localBinding, namedImports, paramNames, requestVariables } from "../ast.js";
-import { importsModule, importsPy } from "../context.js";
+import { importsModule, importsPy, packageRoot } from "../context.js";
 import { aiPayload, firstStringKwarg } from "../python/parse.js";
 import type { Detector, JsFile, ScanContext } from "../types.js";
 
@@ -108,6 +108,21 @@ function runsOn(f: JsFile): "browser" | "server" | "unclear" {
   return "unclear";
 }
 
+/**
+ * A file that imports the SDK but names no model (the file that makes the client) is the same use
+ * of it as the file that does. When the files using one SDK from one place name a single model
+ * between them, the others get it too, so they merge into one fact. Two different models stay apart.
+ */
+function shareModel(drafts: FactDraft[]): FactDraft[] {
+  const use = (d: FactDraft) => `${String(d.attributes?.sdk)}|${String(d.attributes?.runsOn)}|${d.claim}`;
+  const models = new Map<string, Set<string>>();
+  for (const d of drafts) if (typeof d.attributes?.model === "string") models.set(use(d), (models.get(use(d)) ?? new Set()).add(d.attributes.model));
+  return drafts.map((d) => {
+    const named = models.get(use(d));
+    return d.attributes?.model === undefined && named?.size === 1 ? { ...d, attributes: { ...d.attributes, model: [...named][0]! } } : d;
+  });
+}
+
 function aiProviderDetector(spec: ProviderSpec): Detector {
   const library = spec.library ?? "SDK";
   return {
@@ -130,28 +145,30 @@ function aiProviderDetector(spec: ProviderSpec): Detector {
             locations: [{ file: f.file, ...(imp?.line ? { line: imp.line } : {}) }],
           };
         }),
-      ...ctx.js
-        .filter((f) => providersIn(f).includes(spec))
-        .map((f): FactDraft => {
-          const imp = spec.packages.map((p) => importsModule(f, p)).find(Boolean);
-          const model = firstStringProperty(f.ast, "model");
-          const where = runsOn(f);
-          return {
-            kind: "ai_provider",
-            subject: spec.subject,
-            claim: withCaveat(
-              spec,
-              where === "browser"
-                ? `The browser code imports the ${spec.subject} ${library}.`
-                : `The app uses the ${spec.subject} ${library}${where === "server" ? " from server code" : ""}.`,
-            ),
-            attributes: { sdk: imp?.source ?? spec.packages[0]!, runsOn: where, ...(model ? { model } : {}) },
-            confidence: "high",
-            detector: spec.id,
-            key: f.file,
-            locations: [{ file: f.file, ...(imp?.line ? { line: imp.line } : {}) }],
-          };
-        }),
+      ...shareModel(
+        ctx.js
+          .filter((f) => providersIn(f).includes(spec))
+          .map((f): FactDraft => {
+            const imp = spec.packages.map((p) => importsModule(f, p)).find(Boolean);
+            const model = firstStringProperty(f.ast, "model");
+            const where = runsOn(f);
+            return {
+              kind: "ai_provider",
+              subject: spec.subject,
+              claim: withCaveat(
+                spec,
+                where === "browser"
+                  ? `The browser code imports the ${spec.subject} ${library}.`
+                  : `The app uses the ${spec.subject} ${library}${where === "server" ? " from server code" : ""}.`,
+              ),
+              attributes: { sdk: (imp && packageRoot(imp.source)) ?? spec.packages[0]!, runsOn: where, ...(model ? { model } : {}) },
+              confidence: "high",
+              detector: spec.id,
+              key: f.file,
+              locations: [{ file: f.file, ...(imp?.line ? { line: imp.line } : {}) }],
+            };
+          }),
+      ),
     ],
   };
 }

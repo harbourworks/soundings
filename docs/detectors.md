@@ -92,7 +92,7 @@ Soundings reads JavaScript, TypeScript and Python. Source files in Go, Java, Kot
 - From three files up, the scan can't describe the project, so it **does not claim that anything was "not found"** (no AI provider, database, sign-in method or request-body logging). It asks instead: `UQ-unanalysed-code` asks what the unread code does, and your answer is used, attributed to you, wherever the questions and documents would otherwise have said "not found".
 - Facts about the JavaScript and TypeScript it did read are reported as usual. The secret-pattern search reads every text file whatever its language, so its result stands.
 
-The same finding in several files is reported once, with its locations, not once per file.
+The same finding in several files is reported once, with its locations, not once per file. An AI provider's SDK is recorded as its package root (`sdk` in the evidence), so `openai`, `openai/helpers/zod` and `openai/uploads` are one OpenAI fact, and `@scope/pkg/sub` is recorded as `@scope/pkg`; two different packages for one provider (`openai` and `@ai-sdk/openai`) stay two facts. When the JavaScript or TypeScript files that use one SDK from the same place name one model string between them, the files that name none (such as the file that only creates the client) are reported with that model, in the same fact. Files that name different models stay separate facts.
 
 ## Questions the scan raises
 

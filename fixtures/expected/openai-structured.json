@@ -1,0 +1,119 @@
+{
+  "fixture": "openai-structured",
+  "project": {
+    "languages": [
+      "typescript"
+    ],
+    "frameworks": []
+  },
+  "facts": [
+    {
+      "kind": "ai_provider",
+      "subject": "OpenAI",
+      "detector": "ai-provider/openai-sdk",
+      "key": "src/client.ts",
+      "files": [
+        "src/client.ts",
+        "src/extract.ts",
+        "src/upload.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "data_flow",
+      "subject": "OpenAI",
+      "detector": "data-flow/ai-request-payload",
+      "key": "src/extract.ts",
+      "files": [
+        "src/extract.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "secret_handling",
+      "subject": "Environment variables",
+      "detector": "secrets/env-usage",
+      "key": "env",
+      "files": [
+        "src/client.ts"
+      ],
+      "confidence": "high"
+    },
+    {
+      "kind": "secret_handling",
+      "subject": "Hard-coded keys",
+      "detector": "secrets/hardcoded-patterns",
+      "key": "project",
+      "files": [
+        "src/client.ts"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "kind": "client_side_exposure",
+      "subject": "Browser-exposed secrets",
+      "detector": "client-exposure/public-secret-name",
+      "key": "project",
+      "files": [
+        "src/client.ts"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "kind": "data_store",
+      "subject": "No database found",
+      "detector": "data-store/none-found",
+      "key": "project",
+      "files": [
+        "package.json"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "kind": "auth",
+      "subject": "No sign-in found",
+      "detector": "auth/none-found",
+      "key": "project",
+      "files": [
+        "package.json"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "kind": "logging",
+      "subject": "Request-body logging",
+      "detector": "logging/request-body",
+      "key": "project",
+      "files": [
+        "src/extract.ts"
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "unknowns": [
+    "openai-data-use"
+  ],
+  "decoys": [
+    {
+      "kind": "ai_provider",
+      "subject": "Anthropic",
+      "file": "src/alternatives.ts",
+      "contains": "// import type { MessageParam } from \"@anthropic-ai/sdk/resources/messages\";",
+      "why": "A subpath import of an SDK that is in the dependencies, but only in a comment."
+    },
+    {
+      "kind": "ai_provider",
+      "subject": "Mistral",
+      "file": "src/alternatives.ts",
+      "contains": "\"@mistralai/mistralai/models/components\"",
+      "why": "A subpath of an SDK that is in the dependencies, but only in a string literal."
+    },
+    {
+      "kind": "data_flow",
+      "subject": "Anthropic",
+      "file": "src/alternatives.ts",
+      "contains": "structured output",
+      "why": "A comment about trying another vendor's structured output; nothing is sent."
+    }
+  ]
+}
