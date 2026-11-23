@@ -112,12 +112,28 @@ describe("python detectors", () => {
     expect(ask("model.generate_content('Say ' 'hello.', stream=True)")).toEqual([]);
     expect(ask('model.generate_content(f"ping")')).toEqual([]);
     expect(ask("generate_content(prompt)", "def generate_content(x):\n    return x\n\n\n")).toEqual([]);
+    expect(ask("generate_content(contents=prompt)", "def generate_content(contents):\n    return contents\n\n\n")).toEqual([]);
     // Unpacked arguments aren't the prompt itself, so they aren't read as one.
     expect(flow(`${head}def ask(*parts, **options):\n    return model.generate_content(**options)\n`)).toEqual([]);
     expect(flow(`${head}def ask(*parts, **options):\n    return model.generate_content(*parts)\n`)).toEqual([]);
     // Keyword forms are read as before.
     expect(ask('model.generate_content(contents=prompt)')).toEqual(["Google AI|high|7"]);
     expect(ask('model.generate_content(contents="ping")')).toEqual([]);
+  });
+
+  it("reads a bare generate_text or generate_content only when it is imported from the SDK and not defined in the file (#42)", () => {
+    const flow = (code: string) => evidenceOf({ "app/main.py": code }).facts.filter((f) => f.kind === "data_flow").map((f) => `${f.subject}|${f.confidence}|${f.locations?.[0]?.line}`);
+    // A local helper of the SDK's name, in a file that imports another provider.
+    const local = "from openai import OpenAI\nclient = OpenAI()\n\ndef generate_text(prompt):\n    return prompt.upper()\n\ndef handle(question):\n    return generate_text(prompt=question)\n";
+    expect(flow(local)).toEqual([]);
+    // Imported by name from a project module, or not imported at all.
+    expect(flow("import openai\nfrom .helpers import generate_text\n\ndef handle(question):\n    return generate_text(prompt=question)\n")).toEqual([]);
+    expect(flow("import google.generativeai as genai\n\ndef handle(question):\n    return generate_content(contents=question)\n")).toEqual([]);
+    // Imported from the SDK's own module under another name: the bare name is not the SDK's.
+    expect(flow("from google.generativeai import configure as generate_text\n\ndef handle(question):\n    return generate_text(prompt=question)\n")).toEqual([]);
+    // Imported from Google's SDK by name, or called on the module: still read.
+    expect(flow("from google.generativeai import generate_text\n\ndef handle(question):\n    return generate_text(prompt=question)\n")).toEqual(["Google AI|high|4"]);
+    expect(flow("import google.generativeai as palm\n\ndef handle(question):\n    return palm.generate_text(prompt=question)\n")).toEqual(["Google AI|high|4"]);
   });
 
   it("reads generate_content positionally only in files that import Google's SDK (near-miss)", () => {

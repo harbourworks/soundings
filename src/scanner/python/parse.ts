@@ -329,15 +329,27 @@ function firstPositional(args: Tok[]): Tok[] | null {
  * request or a function parameter (a caller supplies it), medium when it is dynamic but unclear.
  * `ownTails` are a provider's own call shapes, read only as a method on an object (`co.chat(...)`).
  * `positional` reads `generate_content(prompt)`'s first argument as the prompt; pass it only for files that import Google's SDK.
+ * `sdkNames` are the names the file imports from the SDK: a bare call (`generate_text(...)`) counts only for one of these
+ * that the file doesn't define itself.
  */
-export function aiPayload(lines: PyLine[], calls: PyCall[], funcs: PyFunc[], ownTails: string[][] = [], positional = false): { confidence: "high" | "medium"; line: number } | null {
+export function aiPayload(
+  lines: PyLine[],
+  calls: PyCall[],
+  funcs: PyFunc[],
+  ownTails: string[][] = [],
+  positional = false,
+  sdkNames: ReadonlySet<string> = new Set(),
+): { confidence: "high" | "medium"; line: number } | null {
   const params = new Set(funcs.flatMap((f) => f.params));
+  const defined = new Set(funcs.map((f) => f.name));
   for (const n of handlerInputs(funcs)) params.add(n);
   const reqVars = requestVariables(lines);
   let best: { confidence: "high" | "medium"; line: number } | null = null;
 
   for (const c of calls) {
     if (!AI_CALL_TAILS.some((t) => callEndsWith(c.chain, t)) && !ownTails.some((t) => c.chain.length > t.length && callEndsWith(c.chain, t))) continue;
+    // A bare `generate_text(...)` is the SDK's only when imported from it by that name and not defined in the file.
+    if (c.chain.length === 1 && (!sdkNames.has(c.chain[0]!) || defined.has(c.chain[0]!))) continue;
     const roots = new Set<string>();
     const first = positional && c.chain.length > 1 && POSITIONAL_PROMPT_TAILS.some((t) => callEndsWith(c.chain, t)) ? firstPositional(c.args) : null;
     for (const v of [...(first ? [first] : []), ...valuesOf(c.args, CONTENT_KEYS)]) {

@@ -189,6 +189,50 @@ describe("data flow to the newer AI providers", () => {
     expect(evidenceOf({ "package.json": pkg(["@ai-sdk/openai", "@aws-sdk/client-bedrock-runtime"]), "src/ai.ts": elsewhere }).facts.filter((f) => f.kind === "data_flow")).toEqual([]);
   });
 
+  it("does not take an un-aliased generateText or ConverseCommand for the SDK's unless it is imported from the SDK (#42)", () => {
+    const deps = pkg(["@ai-sdk/openai", "@aws-sdk/client-bedrock-runtime"]);
+    const flows = (files: Record<string, string>) => evidenceOf({ "package.json": deps, ...files }).facts.filter((f) => f.kind === "data_flow");
+    // The issue's reproduction: a local generateText, and a ConverseCommand imported from a project file.
+    const local = `import { openai } from "@ai-sdk/openai";\nimport { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";\nimport { ConverseCommand } from "./commands";\nexport const client = new BedrockRuntimeClient({});\nfunction generateText(opts: { model: unknown; prompt: string }) { return opts; }\nexport function ask(question: string) {\n  return [\n    generateText({ model: openai("gpt-4o"), prompt: question }), new ConverseCommand({ messages: [{ role: "user", content: [{ text: question }] }] }),\n  ];\n}\n`;
+    const commands = `export class ConverseCommand { constructor(readonly input: unknown) {} }\n`;
+    expect(flows({ "src/local.ts": local, "src/commands.ts": commands })).toEqual([]);
+    // #43: an exported local generateText in a file that imports a provider.
+    const own = `import { openai } from "@ai-sdk/openai";\nexport const model = openai("gpt-4o");\nexport function generateText(opts: { prompt: string }) {\n  return opts.prompt.toUpperCase();\n}\nexport function ask(question: string) {\n  return generateText({ prompt: question });\n}\n`;
+    expect(flowOf("@ai-sdk/openai", own)).toEqual([]);
+    // Each name defined locally on its own, as a const and as a class.
+    expect(flowOf("@ai-sdk/openai", `import { openai } from "@ai-sdk/openai";\nexport const m = openai("m");\nconst streamText = (x: unknown) => x;\nexport const ask = (q: string) => streamText({ prompt: q });\n`)).toEqual([]);
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", `import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";\nexport const c = new BedrockRuntimeClient({});\nclass ConverseCommand { constructor(readonly x: unknown) {} }\nexport const ask = (t: string) => new ConverseCommand({ messages: [{ role: "user", content: [{ text: t }] }] });\n`)).toEqual([]);
+    // Imported un-aliased from a project module, or not imported at all.
+    expect(flowOf("@ai-sdk/openai", `import { openai } from "@ai-sdk/openai";\nimport { generateText, embed } from "./my-ai";\nexport const m = openai("m");\nexport const ask = (q: string) => [generateText({ prompt: q }), embed({ input: q })];\n`)).toEqual([]);
+    expect(flowOf("@ai-sdk/openai", `import { openai } from "@ai-sdk/openai";\nexport const m = openai("m");\ndeclare const generateObject: (x: unknown) => unknown;\nexport const ask = (q: string) => generateObject({ prompt: q });\n`)).toEqual([]);
+    expect(flowOf("@ai-sdk/openai", `const { openai } = require("@ai-sdk/openai");\nconst { generateText } = require("./my-ai");\nexports.m = openai("m");\nexports.ask = (q) => generateText({ prompt: q });\n`)).toEqual([]);
+    // Imported from the SDK, then re-bound by the function around the call.
+    expect(flowOf("@ai-sdk/openai", `import { generateText } from "ai";\nimport { openai } from "@ai-sdk/openai";\nexport const m = openai("m");\nexport function ask(q: string) {\n  const generateText = (x: unknown) => x;\n  return generateText({ prompt: q });\n}\n`)).toEqual([]);
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", `import { ConverseCommand } from "@aws-sdk/client-bedrock-runtime";\nexport function ask(ConverseCommand: new (x: unknown) => unknown, t: string) {\n  return new ConverseCommand({ messages: [{ role: "user", content: [{ text: t }] }] });\n}\n`)).toEqual([]);
+  });
+
+  it("still reads un-aliased generateText and ConverseCommand imported from the SDK, beside a local helper import", () => {
+    const helper = `import { generateText } from "ai";\nimport { openai } from "@ai-sdk/openai";\nimport { framed } from "./prompts";\nexport function ask(question: string) {\n  return generateText({ model: openai("gpt-4o"), prompt: framed(question), system: question });\n}\n`;
+    expect(flowOf("@ai-sdk/openai", helper)).toEqual(["OpenAI|high|5"]);
+    const conv = `import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";\nimport { load } from "./store";\nconst client = new BedrockRuntimeClient({});\nexport function ask(note: string) {\n  return client.send(new ConverseCommand({ modelId: "m", messages: [{ role: "user", content: [{ text: note }] }], system: [{ text: load() }] }));\n}\n`;
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", conv)).toEqual(["AWS Bedrock|high|5"]);
+    // Every AI SDK function, each called bare.
+    for (const fn of ["generateText", "streamText", "generateObject", "streamObject", "embed", "embedMany"]) {
+      const code = `import { ${fn} } from "ai";\nimport { openai } from "@ai-sdk/openai";\nexport function ask(q: string) {\n  return ${fn}({ model: openai("m"), prompt: q });\n}\n`;
+      expect(flowOf("@ai-sdk/openai", code), fn).toEqual(["OpenAI|high|4"]);
+    }
+    // A command from the AI SDK's Bedrock package, and CommonJS destructuring from the SDK.
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", `import { ConverseStreamCommand } from "@aws-sdk/client-bedrock-runtime";\nexport const ask = (t: string) => new ConverseStreamCommand({ modelId: "m", messages: [{ role: "user", content: [{ text: t }] }] });\n`)).toEqual(["AWS Bedrock|high|2"]);
+    const cjs = `const { generateText } = require("ai");\nconst { openai } = require("@ai-sdk/openai");\nexports.ask = function ask(question) {\n  return generateText({ model: openai("gpt-4o"), prompt: question });\n};\n`;
+    expect(flowOf("@ai-sdk/openai", cjs)).toEqual(["OpenAI|high|4"]);
+    const cjsConv = `const { BedrockRuntimeClient, ConverseCommand } = require("@aws-sdk/client-bedrock-runtime");\nconst client = new BedrockRuntimeClient({});\nexports.ask = (t) => client.send(new ConverseCommand({ modelId: "m", messages: [{ role: "user", content: [{ text: t }] }] }));\n`;
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", cjsConv)).toEqual(["AWS Bedrock|high|3"]);
+    // Destructured from a dynamic import of the SDK, and the same from a project module (not the SDK's).
+    const dyn = `import { openai } from "@ai-sdk/openai";\nexport async function ask(question: string) {\n  const { generateText } = await import("ai");\n  return generateText({ model: openai("gpt-4o"), prompt: question });\n}\n`;
+    expect(flowOf("@ai-sdk/openai", dyn)).toEqual(["OpenAI|high|4"]);
+    expect(flowOf("@ai-sdk/openai", dyn.replace('import("ai")', 'import("./my-ai")'))).toEqual([]);
+  });
+
   it("does not resolve an alias where a function or block re-binds the same name", () => {
     // The gatekeeper's case: the alias is imported, then shadowed by a local const inside a function.
     const constGt = `import { generateText as gt } from "ai";\nimport { openai } from "@ai-sdk/openai";\nexport const m = openai("m");\nexport function ask(q: string) {\n  const gt = (x: unknown) => x;\n  return gt({ prompt: q });\n}\n`;
