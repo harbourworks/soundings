@@ -4,6 +4,8 @@
   "facts": [
     { "kind": "ai_provider", "subject": "OpenAI", "detector": "ai-provider/openai-sdk", "key": "app/rag.py", "files": ["app/rag.py"], "confidence": "high" },
     { "kind": "data_flow", "subject": "OpenAI", "detector": "data-flow/ai-request-payload", "key": "app/rag.py", "files": ["app/rag.py"], "confidence": "high" },
+    { "kind": "ai_provider", "subject": "Google AI", "detector": "ai-provider/google-sdk", "key": "app/summarise.py", "files": ["app/summarise.py", "app/warmup.py"], "confidence": "high" },
+    { "kind": "data_flow", "subject": "Google AI", "detector": "data-flow/ai-request-payload", "key": "app/summarise.py", "files": ["app/summarise.py"], "confidence": "high" },
     { "kind": "ai_provider", "subject": "Mistral", "detector": "ai-provider/mistral-sdk", "key": "app/rewrite.py", "files": ["app/rewrite.py"], "confidence": "high" },
     { "kind": "data_flow", "subject": "Mistral", "detector": "data-flow/ai-request-payload", "key": "app/rewrite.py", "files": ["app/rewrite.py"], "confidence": "high" },
     { "kind": "ai_provider", "subject": "Cohere", "detector": "ai-provider/cohere-sdk", "key": "app/rerank.py", "files": ["app/rerank.py"], "confidence": "high" },
@@ -25,11 +27,12 @@
     { "kind": "logging", "subject": "Server logs", "detector": "logging/request-body", "key": "app/routes.py", "files": ["app/routes.py"], "confidence": "medium" },
     { "kind": "client_side_exposure", "subject": "Browser-exposed secrets", "detector": "client-exposure/public-secret-name", "key": "project", "files": ["app/config.py"], "confidence": "medium" }
   ],
-  "unknowns": ["aws-bedrock-data-use", "azure-blob-storage-hosting", "cohere-data-use", "groq-data-use", "litellm-data-use", "litellm-routed-vendors", "mistral-data-use", "ollama-data-use", "ollama-server-location", "openai-data-use", "postgresql-hosting", "retention-deletion"],
+  "unknowns": ["aws-bedrock-data-use", "azure-blob-storage-hosting", "cohere-data-use", "google-ai-data-use", "groq-data-use", "litellm-data-use", "litellm-routed-vendors", "mistral-data-use", "ollama-data-use", "ollama-server-location", "openai-data-use", "postgresql-hosting", "retention-deletion"],
   "decoys": [
     { "kind": "ai_provider", "subject": "Anthropic", "file": "tests/test_rag.py", "contains": "import anthropic", "why": "Imported only in a test file; tests describe how code is checked, not how the product runs." },
     { "kind": "ai_provider", "subject": "Anthropic", "file": "app/notes.py", "contains": "# import anthropic", "why": "A commented-out import in a design note, and a docstring saying it is not used." },
     { "kind": "third_party_service", "subject": "Stripe", "file": "app/notes.py", "contains": "# import stripe", "why": "A commented-out import; the docstring says Stripe is not used." },
-    { "kind": "data_store", "subject": "SQL database (SQLAlchemy)", "file": "app/pool.py", "contains": "create_async_engine", "why": "SQLAlchemy is how the code reaches PostgreSQL. It is reported as the specific engine, not as a second, generic store." }
+    { "kind": "data_store", "subject": "SQL database (SQLAlchemy)", "file": "app/pool.py", "contains": "create_async_engine", "why": "SQLAlchemy is how the code reaches PostgreSQL. It is reported as the specific engine, not as a second, generic store." },
+    { "kind": "data_flow", "subject": "AWS Bedrock", "file": "app/fallback.py", "contains": "def generate_text", "why": "The project's own generate_text helper, defined in the file and not imported from an SDK. It formats text and sends nothing to a model." }
   ]
 }

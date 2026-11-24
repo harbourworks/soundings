@@ -303,6 +303,50 @@ describe("data flow to the newer AI providers", () => {
     expect(evidenceOf({ "package.json": pkg(["@ai-sdk/openai", "@aws-sdk/client-bedrock-runtime"]), "src/ai.ts": elsewhere }).facts.filter((f) => f.kind === "data_flow")).toEqual([]);
   });
 
+  it("does not take an un-aliased generateText or ConverseCommand for the SDK's unless it is imported from the SDK (#42)", () => {
+    const deps = pkg(["@ai-sdk/openai", "@aws-sdk/client-bedrock-runtime"]);
+    const flows = (files: Record<string, string>) => evidenceOf({ "package.json": deps, ...files }).facts.filter((f) => f.kind === "data_flow");
+    // The issue's reproduction: a local generateText, and a ConverseCommand imported from a project file.
+    const local = `import { openai } from "@ai-sdk/openai";\nimport { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";\nimport { ConverseCommand } from "./commands";\nexport const client = new BedrockRuntimeClient({});\nfunction generateText(opts: { model: unknown; prompt: string }) { return opts; }\nexport function ask(question: string) {\n  return [\n    generateText({ model: openai("gpt-4o"), prompt: question }), new ConverseCommand({ messages: [{ role: "user", content: [{ text: question }] }] }),\n  ];\n}\n`;
+    const commands = `export class ConverseCommand { constructor(readonly input: unknown) {} }\n`;
+    expect(flows({ "src/local.ts": local, "src/commands.ts": commands })).toEqual([]);
+    // #43: an exported local generateText in a file that imports a provider.
+    const own = `import { openai } from "@ai-sdk/openai";\nexport const model = openai("gpt-4o");\nexport function generateText(opts: { prompt: string }) {\n  return opts.prompt.toUpperCase();\n}\nexport function ask(question: string) {\n  return generateText({ prompt: question });\n}\n`;
+    expect(flowOf("@ai-sdk/openai", own)).toEqual([]);
+    // Each name defined locally on its own, as a const and as a class.
+    expect(flowOf("@ai-sdk/openai", `import { openai } from "@ai-sdk/openai";\nexport const m = openai("m");\nconst streamText = (x: unknown) => x;\nexport const ask = (q: string) => streamText({ prompt: q });\n`)).toEqual([]);
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", `import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";\nexport const c = new BedrockRuntimeClient({});\nclass ConverseCommand { constructor(readonly x: unknown) {} }\nexport const ask = (t: string) => new ConverseCommand({ messages: [{ role: "user", content: [{ text: t }] }] });\n`)).toEqual([]);
+    // Imported un-aliased from a project module, or not imported at all.
+    expect(flowOf("@ai-sdk/openai", `import { openai } from "@ai-sdk/openai";\nimport { generateText, embed } from "./my-ai";\nexport const m = openai("m");\nexport const ask = (q: string) => [generateText({ prompt: q }), embed({ input: q })];\n`)).toEqual([]);
+    expect(flowOf("@ai-sdk/openai", `import { openai } from "@ai-sdk/openai";\nexport const m = openai("m");\ndeclare const generateObject: (x: unknown) => unknown;\nexport const ask = (q: string) => generateObject({ prompt: q });\n`)).toEqual([]);
+    expect(flowOf("@ai-sdk/openai", `const { openai } = require("@ai-sdk/openai");\nconst { generateText } = require("./my-ai");\nexports.m = openai("m");\nexports.ask = (q) => generateText({ prompt: q });\n`)).toEqual([]);
+    // Imported from the SDK, then re-bound by the function around the call.
+    expect(flowOf("@ai-sdk/openai", `import { generateText } from "ai";\nimport { openai } from "@ai-sdk/openai";\nexport const m = openai("m");\nexport function ask(q: string) {\n  const generateText = (x: unknown) => x;\n  return generateText({ prompt: q });\n}\n`)).toEqual([]);
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", `import { ConverseCommand } from "@aws-sdk/client-bedrock-runtime";\nexport function ask(ConverseCommand: new (x: unknown) => unknown, t: string) {\n  return new ConverseCommand({ messages: [{ role: "user", content: [{ text: t }] }] });\n}\n`)).toEqual([]);
+  });
+
+  it("still reads un-aliased generateText and ConverseCommand imported from the SDK, beside a local helper import", () => {
+    const helper = `import { generateText } from "ai";\nimport { openai } from "@ai-sdk/openai";\nimport { framed } from "./prompts";\nexport function ask(question: string) {\n  return generateText({ model: openai("gpt-4o"), prompt: framed(question), system: question });\n}\n`;
+    expect(flowOf("@ai-sdk/openai", helper)).toEqual(["OpenAI|high|5"]);
+    const conv = `import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";\nimport { load } from "./store";\nconst client = new BedrockRuntimeClient({});\nexport function ask(note: string) {\n  return client.send(new ConverseCommand({ modelId: "m", messages: [{ role: "user", content: [{ text: note }] }], system: [{ text: load() }] }));\n}\n`;
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", conv)).toEqual(["AWS Bedrock|high|5"]);
+    // Every AI SDK function, each called bare.
+    for (const fn of ["generateText", "streamText", "generateObject", "streamObject", "embed", "embedMany"]) {
+      const code = `import { ${fn} } from "ai";\nimport { openai } from "@ai-sdk/openai";\nexport function ask(q: string) {\n  return ${fn}({ model: openai("m"), prompt: q });\n}\n`;
+      expect(flowOf("@ai-sdk/openai", code), fn).toEqual(["OpenAI|high|4"]);
+    }
+    // A command from the AI SDK's Bedrock package, and CommonJS destructuring from the SDK.
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", `import { ConverseStreamCommand } from "@aws-sdk/client-bedrock-runtime";\nexport const ask = (t: string) => new ConverseStreamCommand({ modelId: "m", messages: [{ role: "user", content: [{ text: t }] }] });\n`)).toEqual(["AWS Bedrock|high|2"]);
+    const cjs = `const { generateText } = require("ai");\nconst { openai } = require("@ai-sdk/openai");\nexports.ask = function ask(question) {\n  return generateText({ model: openai("gpt-4o"), prompt: question });\n};\n`;
+    expect(flowOf("@ai-sdk/openai", cjs)).toEqual(["OpenAI|high|4"]);
+    const cjsConv = `const { BedrockRuntimeClient, ConverseCommand } = require("@aws-sdk/client-bedrock-runtime");\nconst client = new BedrockRuntimeClient({});\nexports.ask = (t) => client.send(new ConverseCommand({ modelId: "m", messages: [{ role: "user", content: [{ text: t }] }] }));\n`;
+    expect(flowOf("@aws-sdk/client-bedrock-runtime", cjsConv)).toEqual(["AWS Bedrock|high|3"]);
+    // Destructured from a dynamic import of the SDK, and the same from a project module (not the SDK's).
+    const dyn = `import { openai } from "@ai-sdk/openai";\nexport async function ask(question: string) {\n  const { generateText } = await import("ai");\n  return generateText({ model: openai("gpt-4o"), prompt: question });\n}\n`;
+    expect(flowOf("@ai-sdk/openai", dyn)).toEqual(["OpenAI|high|4"]);
+    expect(flowOf("@ai-sdk/openai", dyn.replace('import("ai")', 'import("./my-ai")'))).toEqual([]);
+  });
+
   it("does not resolve an alias where a function or block re-binds the same name", () => {
     // The gatekeeper's case: the alias is imported, then shadowed by a local const inside a function.
     const constGt = `import { generateText as gt } from "ai";\nimport { openai } from "@ai-sdk/openai";\nexport const m = openai("m");\nexport function ask(q: string) {\n  const gt = (x: unknown) => x;\n  return gt({ prompt: q });\n}\n`;
@@ -441,6 +485,93 @@ describe("data flow to AI providers", () => {
         "server.ts": `${head}export function edit(req: { body: { image: string; instructions: string } }) {\n  return client\n    .images\n    .edit({ image: req.body.image, prompt: req.body.instructions });\n}\n`,
       });
       expect(f ? { confidence: f.confidence, line: f.locations[0]?.line } : undefined).toEqual({ confidence: "high", line: 4 });
+    });
+  });
+
+  describe("a prompt passed positionally to Gemini's generateContent", () => {
+    const gHead = `import { GoogleGenerativeAI } from "@google/generative-ai";\nconst genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? "");\nconst model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });\n`;
+    const flows = (files: Record<string, string>, deps = ["@google/generative-ai"]) =>
+      evidenceOf({ "package.json": pkg(deps), ...files })
+        .facts.filter((f) => f.kind === "data_flow")
+        .map((f) => `${f.subject}|${f.confidence}|${f.locations.map((l) => `${l.file}:${l.line}`).join(",")}`);
+    const callIn = (body: string, before = "") => flows({ "src/ai.ts": `${gHead}${before}export async function ask(note: string, image: { inlineData: { data: string; mimeType: string } }) {\n  return ${body};\n}\n` });
+
+    it("flags the issue's reproduction: a template literal built from a parameter, at the call line", () => {
+      const code = `import { GoogleGenerativeAI } from "@google/generative-ai";\n\nconst genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? "");\n\nexport async function summarise(note: string): Promise<string> {\n  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });\n  const result = await model.generateContent(\`Summarise this note: \${note}\`);\n  return result.response.text();\n}\n`;
+      const facts = evidenceOf({ "package.json": pkg(["@google/generative-ai", "express"]), "src/summarise.ts": code }).facts.filter((f) => f.kind === "data_flow");
+      expect(facts.map((f) => ({ subject: f.subject, confidence: f.confidence, claim: f.claim, locations: f.locations }))).toEqual([
+        {
+          subject: "Google AI",
+          confidence: "high",
+          claim: "Text taken from a request or function input is included in prompts sent to Google AI.",
+          locations: [{ file: "src/summarise.ts", line: 7 }],
+        },
+      ]);
+    });
+
+    it("flags a parameter passed as the whole prompt", () => {
+      expect(callIn("model.generateContent(note)")).toEqual(["Google AI|high|src/ai.ts:5"]);
+    });
+
+    it("flags generateContentStream the same way", () => {
+      expect(callIn("model.generateContentStream(`Reply to: ${note}`)")).toEqual(["Google AI|high|src/ai.ts:5"]);
+    });
+
+    it("flags a prompt joined with + and an array of parts", () => {
+      expect(callIn(`model.generateContent("Summarise: " + note)`)).toEqual(["Google AI|high|src/ai.ts:5"]);
+      expect(callIn(`model.generateContent(["Describe this image.", image])`)).toEqual(["Google AI|high|src/ai.ts:5"]);
+    });
+
+    it("flags a request value passed positionally", () => {
+      const code = `${gHead}export async function POST(req: Request) {\n  const body = await req.json();\n  return model.generateContent(\`Answer: \${body.text}\`);\n}\n`;
+      expect(flows({ "app/api/ask/route.ts": code })).toEqual(["Google AI|high|app/api/ask/route.ts:6"]);
+    });
+
+    it("gives medium when the positional prompt's source isn't clear", () => {
+      expect(callIn("model.generateContent(STYLE_GUIDE)", `import { STYLE_GUIDE } from "./prompts";\n`)).toEqual(["Google AI|medium|src/ai.ts:6"]);
+    });
+
+    it("ignores a fixed string, and a template with no expressions (decoys)", () => {
+      expect(callIn(`model.generateContent("ping")`)).toEqual([]);
+      expect(callIn("model.generateContent(`ping`)")).toEqual([]);
+      expect(callIn("model.generateContentStream('Say hello.')")).toEqual([]);
+      expect(callIn(`model.generateContent("Say " + "hello.")`)).toEqual([]);
+    });
+
+    it("does not read a local generateContent helper in a file that imports no provider (near-miss)", () => {
+      const helper = `export function generateContent(x: string) {\n  return x.trim();\n}\nexport function tidy(note: string) {\n  return generateContent(note);\n}\nexport const page = { generateContent: (x: string) => x };\nexport const out = (note: string) => page.generateContent(note);\n`;
+      expect(flows({ "src/ai.ts": `${gHead}export const ping = () => model.generateContent("ping");\n`, "src/text.ts": helper })).toEqual([]);
+    });
+
+    it("does not read generateContent(x) positionally in a file that imports another provider but not Google's SDK (near-miss)", () => {
+      const seo = `import OpenAI from "openai";\nconst openai = new OpenAI();\nconst cms = { generateContent: (slug: string) => slug };\n\nexport async function tagline() {\n  const r = await openai.chat.completions.create({ model: "gpt-4o-mini", messages: [{ role: "user", content: "Write a tagline." }] });\n  return r.choices[0]?.message.content;\n}\n\nexport async function page(slug: string) {\n  return cms.generateContent(slug);\n}\n`;
+      expect(flows({ "src/seo.ts": seo }, ["openai"])).toEqual([]);
+      expect(flows({ "src/seo.ts": seo.replace("cms.generateContent(slug)", "cms.generateContentStream(`Page: ${slug}`)") }, ["openai"])).toEqual([]);
+      // @ai-sdk/google is the Vercel AI SDK's provider, not Google's own SDK, so it does not turn the read on either.
+      const vercel = `import { google } from "@ai-sdk/google";\nexport const m = google("gemini-2.5-flash");\nconst cms = { generateContent: (slug: string) => slug };\nexport const page = (slug: string) => cms.generateContent(slug);\n`;
+      expect(flows({ "src/seo.ts": vercel }, ["@ai-sdk/google"])).toEqual([]);
+    });
+
+    it("reads the positional prompt with either Google SDK, also next to another provider's import", () => {
+      const both = `import OpenAI from "openai";\nimport { GoogleGenAI } from "@google/genai";\nconst ai = new GoogleGenAI({});\nexport const o = new OpenAI();\nexport function ask(note: string) {\n  return ai.models.generateContentStream(note);\n}\n`;
+      expect(flows({ "src/ai.ts": both }, ["openai", "@google/genai"]).sort()).toEqual(["Google AI|high|src/ai.ts:6", "OpenAI|high|src/ai.ts:6"]);
+    });
+
+    it("does not read a bare generateContent(x) call positionally, even in a file that imports the SDK", () => {
+      expect(callIn("generateContent(note)", `const generateContent = (x: string) => x;\n`)).toEqual([]);
+    });
+
+    it("still reads the object form, and leaves the object form's fixed text alone", () => {
+      const newSdk = `import { GoogleGenAI } from "@google/genai";\nconst ai = new GoogleGenAI({});\nexport function ask(note: string) {\n  return ai.models.generateContent({ model: "gemini-2.5-flash", contents: note });\n}\n`;
+      expect(flows({ "src/ai.ts": newSdk }, ["@google/genai"])).toEqual(["Google AI|high|src/ai.ts:4"]);
+      expect(flows({ "src/ai.ts": newSdk.replace("contents: note", `contents: "ping"`) }, ["@google/genai"])).toEqual([]);
+    });
+
+    // Other SDKs take an options object, so a variable there is not itself the prompt: reading it
+    // positionally would report fixed options as variable content. That shape is left as it was.
+    it("does not read a positional options variable for other providers' calls", () => {
+      const code = `${head}const params = { model: "m", messages: [{ role: "user" as const, content: "Say hello." }] };\nexport const r = client.chat.completions.create(params);\n`;
+      expect(flow({ "ai.ts": code })).toBeUndefined();
     });
   });
 });
