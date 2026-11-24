@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { parseJs } from "../src/core/js.js";
+import { setsProperty } from "../src/scanner/ast.js";
 import { packageRoot } from "../src/scanner/context.js";
 import { cleanupProjects, evidenceOf, factsOf, pkg, rand } from "./helpers.js";
 
@@ -121,6 +123,69 @@ describe("AI providers", () => {
     expect(facts.map((f) => ({ model: f.attributes.model, files: f.locations.map((l) => l.file) }))).toEqual([
       { model: "gpt-4o-mini", files: ["src/client.ts", "src/extract.ts", "src/upload.ts"] },
     ]);
+  });
+
+  it("does not give the one string model to a file whose model the scan can't read (an env var)", () => {
+    const e = evidenceOf({
+      "package.json": pkg(["openai"]),
+      "src/chat.ts": `import OpenAI from "openai";\nconst openai = new OpenAI();\nexport const chat = (t: string) => openai.chat.completions.create({ model: "gpt-4o", messages: [{ role: "user", content: t }] });\n`,
+      "src/embed.ts": `import OpenAI from "openai";\nconst openai = new OpenAI();\nconst EMBED_MODEL = process.env.EMBED_MODEL!;\nexport const embed = (t: string) => openai.embeddings.create({ model: EMBED_MODEL, input: t });\n`,
+    });
+    const facts = e.facts.filter((f) => f.kind === "ai_provider");
+    expect(facts.map((f) => [f.attributes.model ?? null, f.locations.map((l) => l.file)]).sort()).toEqual(
+      [
+        ["gpt-4o", ["src/chat.ts"]],
+        [null, ["src/embed.ts"]],
+      ].sort(),
+    );
+  });
+
+  it.each([
+    ["a shorthand property", `const model = pick();\nexport const o = { model };\n`],
+    ["an expression", `export const o = { model: "gpt-" + process.env.SIZE };\n`],
+    ["a template string", "export const o = { model: `gpt-${process.env.SIZE}` };\n"],
+    ["an assigned property", `const params: Record<string, string> = {};\nparams.model = process.env.M!;\nexport const p = params;\n`],
+  ])("keeps a file whose model is %s as its own fact with no model", (_label, body) => {
+    const e = evidenceOf({
+      "package.json": pkg(["openai"]),
+      "src/chat.ts": `import OpenAI from "openai";\nexport const c = { model: "gpt-4o" };\n`,
+      "src/other.ts": `import OpenAI from "openai";\n${body}`,
+    });
+    const facts = e.facts.filter((f) => f.kind === "ai_provider");
+    expect(facts.map((f) => [f.attributes.model ?? null, f.locations.map((l) => l.file)]).sort()).toEqual(
+      [
+        ["gpt-4o", ["src/chat.ts"]],
+        [null, ["src/other.ts"]],
+      ].sort(),
+    );
+  });
+
+  it("still gives the model to a file that mentions `model:` only in a comment or a string", () => {
+    const e = evidenceOf({
+      "package.json": pkg(["openai"]),
+      "src/chat.ts": `import OpenAI from "openai";\nexport const c = { model: "gpt-4o" };\n`,
+      "src/client.ts": `import OpenAI from "openai";\n// model: process.env.MODEL\nexport const hint = "set model: in chat.ts";\nexport const openai = new OpenAI();\n`,
+    });
+    const facts = e.facts.filter((f) => f.kind === "ai_provider");
+    expect(facts.map((f) => ({ model: f.attributes.model, files: f.locations.map((l) => l.file) }))).toEqual([
+      { model: "gpt-4o", files: ["src/chat.ts", "src/client.ts"] },
+    ]);
+  });
+
+  it.each([
+    [`const o = { model: "gpt-4o" };`, true],
+    [`const o = { model: process.env.M };`, true],
+    [`const model = 1; const o = { model };`, true],
+    [`const o = { "model": x };`, true],
+    [`const o = { model() { return 1; } };`, true],
+    [`o.model = x;`, true],
+    [`o["model"] = x;`, true],
+    [`const o = { models: x, modelName: y };`, false],
+    [`const k = "model"; const o = { [k]: x };`, false],
+    [`o[model] = x;`, false],
+    [`const model = "gpt-4o"; use(model); // model: x`, false],
+  ])("setsProperty(%j, \"model\") is %s", (code, expected) => {
+    expect(setsProperty(parseJs("a.ts", code)!, "model")).toBe(expected);
   });
 
   it("keeps facts that name two different models apart, and gives neither model to a file that names none", () => {
