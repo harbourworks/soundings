@@ -47,17 +47,34 @@ export function calls(ast: Node): Array<{ node: Node; chain: string[] | null; li
   return out;
 }
 
+/** The module of a `require("m")` or `await import("m")`, or null. */
+function loadedModule(n: Node | null | undefined): string | null {
+  const call = n?.type === "AwaitExpression" ? n.argument : n;
+  if (call?.type !== "CallExpression") return null;
+  const isRequire = call.callee.type === "Identifier" && call.callee.name === "require";
+  if (!isRequire && !(n?.type === "AwaitExpression" && call.callee.type === "Import")) return null;
+  const [arg] = call.arguments;
+  return arg?.type === "StringLiteral" ? arg.value : null;
+}
+
 /**
  * Named imports from `modules`, as local name to imported name: `import { generateText as gt } from "ai"`
- * maps `gt` to `generateText`. Default and namespace imports are not included.
+ * maps `gt` to `generateText`, and `import { generateText } from "ai"` maps `generateText` to itself.
+ * Destructuring a `require` or an awaited `import()` without renaming counts too: `const { generateText } = require("ai")`.
+ * Default and namespace imports are not included, and neither is a renamed `require` (`{ generateText: gt }`).
  */
 export function namedImports(ast: Node, modules: ReadonlySet<string>): Map<string, string> {
   const out = new Map<string, string>();
   if (modules.size === 0) return out;
   walkAst(ast, (n) => {
-    if (n.type !== "ImportDeclaration" || !modules.has(n.source.value)) return undefined;
-    for (const s of n.specifiers) {
-      if (s.type === "ImportSpecifier") out.set(s.local.name, s.imported.type === "Identifier" ? s.imported.name : s.imported.value);
+    if (n.type === "ImportDeclaration" && modules.has(n.source.value)) {
+      for (const s of n.specifiers) {
+        if (s.type === "ImportSpecifier") out.set(s.local.name, s.imported.type === "Identifier" ? s.imported.name : s.imported.value);
+      }
+    } else if (n.type === "VariableDeclarator" && n.id.type === "ObjectPattern" && modules.has(loadedModule(n.init) ?? "")) {
+      for (const prop of n.id.properties) {
+        if (prop.type === "ObjectProperty" && !prop.computed && prop.shorthand && prop.value.type === "Identifier") out.set(prop.value.name, prop.value.name);
+      }
     }
     return undefined;
   });
@@ -66,49 +83,60 @@ export function namedImports(ast: Node, modules: ReadonlySet<string>): Map<strin
 
 const FUNCTION_TYPES = new Set(["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression", "ObjectMethod", "ClassMethod", "ClassPrivateMethod"]);
 
+/** Modules whose `require` or `await import()` destructuring counts as an import, so it isn't a local binding. */
+type Required = ReadonlySet<string>;
+
+/** Names a `const`/`let`/`var` declares, leaving out destructuring of a `require` or `await import()` of a module in `required`. */
+const declaratorNames = (s: Node & { type: "VariableDeclaration" }, required: Required): string[] =>
+  s.declarations.flatMap((d) => (d.id.type === "ObjectPattern" && required.has(loadedModule(d.init) ?? "") ? [] : boundNames(d.id)));
+
 /** Names a statement declares in the block that holds it: `const a`, `function a`, `class a`, `enum a`, and exported forms. */
-function declaredBy(s: Node): string[] {
+function declaredBy(s: Node, required: Required): string[] {
   switch (s.type) {
     case "VariableDeclaration":
-      return s.declarations.flatMap((d) => boundNames(d.id));
+      return declaratorNames(s, required);
     case "FunctionDeclaration":
     case "ClassDeclaration":
     case "TSEnumDeclaration":
       return s.id ? [s.id.name] : [];
     case "ExportNamedDeclaration":
     case "ExportDefaultDeclaration":
-      return s.declaration ? declaredBy(s.declaration) : [];
+      return s.declaration ? declaredBy(s.declaration, required) : [];
     default:
       return [];
   }
 }
 
 /** Every `var` name inside a function body, which hoists to the function. Nested functions are not entered. */
-function varNames(body: Node): string[] {
+function varNames(body: Node, required: Required): string[] {
   const out: string[] = [];
   walkAst(body, (n) => {
     if (FUNCTION_TYPES.has(n.type)) return false;
-    if (n.type === "VariableDeclaration" && n.kind === "var") for (const d of n.declarations) out.push(...boundNames(d.id));
+    if (n.type === "VariableDeclaration" && n.kind === "var") out.push(...declaratorNames(n, required));
     return undefined;
   });
   return out;
 }
 
-/** Value names a scope node binds for the code inside it. Import specifiers are left out: they are what is being resolved. */
-function scopeBindings(n: Node): string[] {
+/**
+ * Value names a scope node binds for the code inside it. Import specifiers, and `require` or `await import()`
+ * destructuring of a module in `required`, are left out: they are what is being resolved.
+ */
+function scopeBindings(n: Node, required: Required): string[] {
+  const declared = (s: Node) => declaredBy(s, required);
   switch (n.type) {
     case "Program":
     case "BlockStatement":
     case "StaticBlock":
     case "TSModuleBlock":
-      return n.body.flatMap(declaredBy);
+      return n.body.flatMap(declared);
     case "SwitchStatement":
-      return n.cases.flatMap((c) => c.consequent.flatMap(declaredBy));
+      return n.cases.flatMap((c) => c.consequent.flatMap(declared));
     case "ForStatement":
-      return n.init ? declaredBy(n.init) : [];
+      return n.init ? declared(n.init) : [];
     case "ForInStatement":
     case "ForOfStatement":
-      return declaredBy(n.left);
+      return declared(n.left);
     case "CatchClause":
       return boundNames(n.param);
     case "ClassExpression":
@@ -122,7 +150,7 @@ function scopeBindings(n: Node): string[] {
       return [
         ...n.params.flatMap((p) => boundNames(p)),
         ...(n.type === "FunctionExpression" && n.id ? [n.id.name] : []),
-        ...varNames(n.body),
+        ...varNames(n.body, required),
       ];
     default:
       return [];
@@ -132,9 +160,10 @@ function scopeBindings(n: Node): string[] {
 /**
  * Returns a check for whether `name`, used at node `at`, is bound by something in the file other than an import:
  * a parameter, a local `const`/`let`/`var`, a function, a class or a catch parameter in any enclosing scope.
- * Used so that `import { generateText as gt } from "ai"` doesn't make a local `gt` a model call.
+ * Used so that `import { generateText as gt } from "ai"` doesn't make a local `gt` a model call. Destructuring a
+ * `require` or `await import()` of a module in `required` counts as an import, as in `namedImports`.
  */
-export function localBinding(ast: Node): (at: Node, name: string) => boolean {
+export function localBinding(ast: Node, required: Required = new Set()): (at: Node, name: string) => boolean {
   const parents = new Map<Node, Node>();
   walkAst(ast, (n, parent) => {
     if (parent) parents.set(n, parent);
@@ -143,7 +172,7 @@ export function localBinding(ast: Node): (at: Node, name: string) => boolean {
   return (at, name) => {
     for (let p = parents.get(at); p; p = parents.get(p)) {
       let names = cache.get(p);
-      if (!names) cache.set(p, (names = new Set(scopeBindings(p))));
+      if (!names) cache.set(p, (names = new Set(scopeBindings(p, required))));
       if (names.has(name)) return true;
     }
     return false;

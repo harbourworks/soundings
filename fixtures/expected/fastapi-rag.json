@@ -32,6 +32,7 @@
     { "kind": "ai_provider", "subject": "Anthropic", "file": "tests/test_rag.py", "contains": "import anthropic", "why": "Imported only in a test file; tests describe how code is checked, not how the product runs." },
     { "kind": "ai_provider", "subject": "Anthropic", "file": "app/notes.py", "contains": "# import anthropic", "why": "A commented-out import in a design note, and a docstring saying it is not used." },
     { "kind": "third_party_service", "subject": "Stripe", "file": "app/notes.py", "contains": "# import stripe", "why": "A commented-out import; the docstring says Stripe is not used." },
-    { "kind": "data_store", "subject": "SQL database (SQLAlchemy)", "file": "app/pool.py", "contains": "create_async_engine", "why": "SQLAlchemy is how the code reaches PostgreSQL. It is reported as the specific engine, not as a second, generic store." }
+    { "kind": "data_store", "subject": "SQL database (SQLAlchemy)", "file": "app/pool.py", "contains": "create_async_engine", "why": "SQLAlchemy is how the code reaches PostgreSQL. It is reported as the specific engine, not as a second, generic store." },
+    { "kind": "data_flow", "subject": "AWS Bedrock", "file": "app/fallback.py", "contains": "def generate_text", "why": "The project's own generate_text helper, defined in the file and not imported from an SDK. It formats text and sends nothing to a model." }
   ]
 }

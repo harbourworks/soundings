@@ -3,7 +3,7 @@ import { walkAst } from "../../core/js.js";
 import type { Node } from "@babel/types";
 import { calls, chainOf, dynamicRoots, endsWith, firstStringProperty, lineOf, localBinding, namedImports, paramNames, requestVariables } from "../ast.js";
 import { importsModule, importsPy } from "../context.js";
-import { aiPayload, firstStringKwarg } from "../python/parse.js";
+import { aiPayload, firstStringKwarg, withinModule } from "../python/parse.js";
 import type { Detector, JsFile, ScanContext } from "../types.js";
 
 interface ProviderSpec {
@@ -181,7 +181,11 @@ const AI_CALL_TAILS_ON_CLIENT: string[][] = [
   ["images", "edit"],
 ];
 const AI_CALL_FUNCTIONS = new Set(["generateText", "streamText", "generateObject", "streamObject", "embed", "embedMany"]);
-/** The module that exports `AI_CALL_FUNCTIONS`, so `import { generateText as gt } from "ai"` makes `gt(...)` a model call. */
+/**
+ * The module that exports `AI_CALL_FUNCTIONS`. A bare call counts only when its name is imported from it:
+ * `import { generateText } from "ai"` makes `generateText(...)` a model call, `import { generateText as gt } from "ai"`
+ * makes `gt(...)` one, and a `generateText` defined in the file or imported from elsewhere is not.
+ */
 const AI_CALL_MODULES = new Set(["ai"]);
 const CONTENT_KEYS = new Set(["content", "prompt", "input", "contents", "text", "system", "messages"]);
 /**
@@ -196,6 +200,20 @@ const POSITIONAL_PROMPT_SDKS = { js: ["@google/generative-ai", "@google/genai"],
 const POSITIONAL_PROMPT_TYPES = new Set(["Identifier", "TemplateLiteral", "BinaryExpression", "ArrayExpression"]);
 
 /**
+ * What a bare name used at a node was imported as from `modules`, or null when it isn't imported from them or
+ * something closer re-binds it (a parameter, a local `const`, `let` or `var`, a function, a class).
+ */
+function sdkScope(f: JsFile, modules: ReadonlySet<string>): (name: string, at: Node) => string | null {
+  const imported = namedImports(f.ast, modules);
+  let bound: ReturnType<typeof localBinding> | undefined;
+  return (name, at) => {
+    const original = imported.get(name);
+    if (original === undefined) return null;
+    return (bound ??= localBinding(f.ast, modules))(at, name) ? null : original;
+  };
+}
+
+/**
  * Finds model calls whose prompt content comes from somewhere other than a fixed string.
  * "high" when that content traces to a request or a function parameter (a caller supplies it),
  * "medium" when it is dynamic but its source isn't clear.
@@ -205,16 +223,9 @@ function payloadIn(f: JsFile, providers: ProviderSpec[]): { confidence: "high" |
   const params = paramNames(f.ast);
   const ownTails = providers.flatMap((p) => p.calls?.js ?? []);
   const commands = new Set(providers.flatMap((p) => p.commands ?? []));
-  // Aliased names resolve to what they were imported as, only when imported from the SDK's own module.
-  const fnNames = namedImports(f.ast, AI_CALL_MODULES);
-  const commandNames = namedImports(f.ast, new Set(providers.flatMap((p) => (p.commands ? p.packages : []))));
-  // ...and only where nothing closer re-binds the name (a parameter, a local const, function or class).
-  let bound: ReturnType<typeof localBinding> | undefined;
-  const resolve = (aliases: Map<string, string>, name: string, at: Node): string => {
-    const imported = aliases.get(name);
-    if (imported === undefined || imported === name) return name;
-    return (bound ??= localBinding(f.ast))(at, name) ? name : imported;
-  };
+  // A bare name is the SDK's only when imported from the SDK's own module; it resolves to the name it was imported as.
+  const fnScope = sdkScope(f, AI_CALL_MODULES);
+  const commandScope = sdkScope(f, new Set(providers.flatMap((p) => (p.commands ? p.packages : []))));
   let best: { confidence: "high" | "medium"; line?: number } | null = null;
   const positionalSdk = POSITIONAL_PROMPT_SDKS.js.some((m) => importsModule(f, m));
 
@@ -223,7 +234,7 @@ function payloadIn(f: JsFile, providers: ProviderSpec[]): { confidence: "high" |
     const isAiCall =
       (call.chain !== null && AI_CALL_TAILS.some((t) => endsWith(call.chain, t))) ||
       (call.chain !== null && AI_CALL_TAILS_ON_CLIENT.some((t) => call.chain!.length > t.length && endsWith(call.chain, t))) ||
-      (call.chain !== null && call.chain.length === 1 && call.node.type === "CallExpression" && AI_CALL_FUNCTIONS.has(resolve(fnNames, call.chain[0]!, call.node.callee))) ||
+      (call.chain !== null && call.chain.length === 1 && call.node.type === "CallExpression" && AI_CALL_FUNCTIONS.has(fnScope(call.chain[0]!, call.node.callee) ?? "")) ||
       (call.chain !== null && ownTails.some((t) => call.chain!.length > t.length && endsWith(call.chain, t)));
     if (isAiCall && call.node.type === "CallExpression") {
       const positional = positionalSdk && call.chain!.length > 1 && POSITIONAL_PROMPT_TAILS.some((t) => endsWith(call.chain, t));
@@ -235,7 +246,7 @@ function payloadIn(f: JsFile, providers: ProviderSpec[]): { confidence: "high" |
       if (n.type !== "NewExpression") return undefined;
       const chain = chainOf(n.callee);
       const line = lineOf(n);
-      const name = chain?.length === 1 ? resolve(commandNames, chain[0]!, n.callee) : chain?.[chain.length - 1];
+      const name = chain?.length === 1 ? commandScope(chain[0]!, n.callee) : chain?.[chain.length - 1];
       if (name && commands.has(name)) sends.push({ args: n.arguments, ...(line ? { line } : {}) });
       return undefined;
     });
@@ -272,7 +283,10 @@ const dataFlowDetector: Detector = {
     for (const f of ctx.py) {
       const providers = AI_PROVIDERS.filter((p) => p.pyModules.length > 0 && importsPy(f, ...p.pyModules));
       if (providers.length === 0) continue;
-      const payload = aiPayload(f.lines, f.calls, f.funcs, providers.flatMap((p) => p.calls?.py ?? []), !!importsPy(f, ...POSITIONAL_PROMPT_SDKS.py));
+      const modules = providers.flatMap((p) => p.pyModules);
+      // Names imported from the SDK (`from google.generativeai import generate_text`): only these count as bare calls.
+      const sdkNames = new Set(f.imports.filter((i) => modules.some((m) => withinModule(i.module, m))).flatMap((i) => i.names));
+      const payload = aiPayload(f.lines, f.calls, f.funcs, providers.flatMap((p) => p.calls?.py ?? []), !!importsPy(f, ...POSITIONAL_PROMPT_SDKS.py), sdkNames);
       if (!payload) continue;
       for (const p of providers) {
         facts.push({
