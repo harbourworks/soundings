@@ -2,6 +2,14 @@
 
 All notable changes to soundings-cli. Versions follow [semantic versioning](https://semver.org); while it's 0.x, a minor version can change behaviour.
 
+## 0.3.1 (25 November 2026)
+
+Prompts sent to Gemini as a plain argument are traced, a project's own functions named like SDK calls are no longer reported as model calls, and `verify` catches a data-flow claim that cites only an SDK fact.
+
+- **Gemini prompts passed on their own** are traced as prompts sent to Google AI: `model.generateContent(prompt)` and `model.generateContentStream(…)` in JavaScript/TypeScript, and `model.generate_content(prompt)` and `generate_content_async(…)` in Python, when the prompt is a variable, a template or f-string with something inserted, a joined string or a list. These are read only as a method on an object, and only in files that import Google's own SDK (`@google/generative-ai` or `@google/genai`; `google.generativeai` or `google.genai`). Before, a project that sent user text this way got a Google AI provider fact but no "Data sent to other services" entry. Fixed text such as `generateContent("ping")` is still not reported. In JavaScript, a property or a function call as the first argument (`generateContent(req.body.text)`) is not read yet.
+- **A project's own function or class named like an SDK call** is no longer reported as sending prompts to an AI provider. A bare `generateText`, `streamText`, `generateObject`, `streamObject`, `embed` or `embedMany` now counts only when it is imported from `ai`, and a bare `new ConverseCommand(…)` or `new ConverseStreamCommand(…)` only when it is imported from `@aws-sdk/client-bedrock-runtime` or `@ai-sdk/amazon-bedrock`. Destructuring a `require` or an `await import()` of those modules without renaming still counts. A name defined in the file, imported from another module, or not imported at all no longer counts. In Python, a bare `generate_text(…)`, `generate_content(…)` or `generate_content_async(…)` counts only when that name is imported from the provider's SDK and the file doesn't define a function of the same name. Before, these could give a wrong high-confidence "Data sent to other services" fact.
+- **`soundings verify`** fails a sentence that says data is sent to an AI provider ("sent to", "passed to", "shared with", "included in prompts" and the like, naming the provider as who receives it) when it cites only the fact that the provider's SDK is used and no data-flow fact for that provider (`flow-not-in-source`). It is not applied when the sentence also cites one of your answers, or says the data is not sent. A draft that passed before can now fail.
+
 ## 0.3.0 (21 November 2026)
 
 Local models, AI routers and Django databases are recognised, more OpenAI calls are traced, and `verify` catches more uncited claims.
