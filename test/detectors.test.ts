@@ -771,6 +771,96 @@ describe("ORMs: Prisma and Drizzle", () => {
   });
 });
 
+describe("SQLite, TypeORM, Knex and Sequelize", () => {
+  const stores = (files: Record<string, string>) => evidenceOf(files).facts.filter((f) => f.kind === "data_store" && f.claimType !== "not-found");
+  const summary = (files: Record<string, string>) => stores(files).map((f) => `${f.subject}|${f.detector}|${f.attributes.engine}|${f.confidence}`);
+
+  it.each([
+    ["better-sqlite3", `import Database from "better-sqlite3";\nexport const db = new Database("notes.db");\n`],
+    ["sqlite3", `const sqlite3 = require("sqlite3");\nexport const db = new sqlite3.Database("notes.db");\n`],
+    ["@libsql/client", `import { createClient } from "@libsql/client";\nexport const db = createClient({ url: "file:notes.db" });\n`],
+    ["@libsql/client", `const { createClient } = require("@libsql/client/web");\nmodule.exports = createClient;\n`],
+    ["better-sqlite3", `export const open = async () => new (await import("better-sqlite3")).default(":memory:");\n`],
+  ])("reports SQLite when %s is imported, at the import line", (dep, code) => {
+    const [f, ...rest] = stores({ "package.json": pkg([dep]), "src/db.ts": code });
+    expect(rest).toEqual([]);
+    expect(f).toMatchObject({ subject: "SQLite", detector: "data-store/sqlite", confidence: "high", claimType: "observed", attributes: { engine: "sqlite" } });
+    // The claim says only that SQLite is used, not what is kept in it.
+    expect(f!.claim).toBe("The app uses SQLite.");
+    expect(f!.locations).toEqual([{ file: "src/db.ts", line: 1 }]);
+  });
+
+  it.each([
+    ["typeorm", "TypeORM", "medium", `import { DataSource } from "typeorm";\nexport const ds = new DataSource({});\n`],
+    ["knex", "Knex", "high", `import knex from "knex";\nexport const db = knex({});\n`],
+    ["sequelize", "Sequelize", "high", `const { Sequelize } = require("sequelize");\nexport const db = new Sequelize();\n`],
+  ])("reports a generic SQL database when only %s is imported", (dep, name, confidence, code) => {
+    const [f, ...rest] = stores({ "package.json": pkg([dep]), "src/db.ts": code });
+    expect(rest).toEqual([]);
+    expect(f).toMatchObject({ subject: `SQL database (${name})`, detector: `data-store/${dep}`, confidence, attributes: { engine: "sql" } });
+    expect(f!.claim).toBe(`The app uses ${name}, but its imports don't show which database engine it connects to.`);
+    expect(f!.locations).toEqual([{ file: "src/db.ts", line: 1 }]);
+  });
+
+  it("does not read the engine from TypeORM's or Knex's connection options", () => {
+    // `type: "postgres"` and `client: "pg"` are strings in an options object: the engine is never guessed from them.
+    expect(
+      summary({
+        "package.json": pkg(["typeorm", "knex"]),
+        "src/db.ts": `import { DataSource } from "typeorm";\nimport knex from "knex";\nexport const ds = new DataSource({ type: "postgres" });\nexport const k = knex({ client: "pg" });\n`,
+      }),
+    ).toEqual(["SQL database (Knex)|data-store/knex|sql|high", "SQL database (TypeORM)|data-store/typeorm|sql|medium"]);
+  });
+
+  it.each([
+    ["typeorm", "pg", `import pg from "pg";\nexport const p = pg;\n`, "PostgreSQL|data-store/postgres|postgres|high"],
+    ["knex", "mysql2", `import mysql from "mysql2";\nexport const m = mysql;\n`, "MySQL|data-store/mysql|mysql|high"],
+    ["sequelize", "sqlite3", `import sqlite3 from "sqlite3";\nexport const s = sqlite3;\n`, "SQLite|data-store/sqlite|sqlite|high"],
+  ])("reports only the specific engine when %s sits on %s", (orm, driver, driverCode, expected) => {
+    const s = summary({ "package.json": pkg([orm, driver]), "src/orm.ts": `import * as orm from "${orm}";\nexport const o = orm;\n`, "src/driver.ts": driverCode });
+    expect(s).toEqual([expected]);
+  });
+
+  it("keeps one SQLite fact when Drizzle names SQLite and a SQLite driver is imported", () => {
+    const s = stores({
+      "package.json": pkg(["drizzle-orm", "better-sqlite3"]),
+      "db/schema.ts": `import { sqliteTable } from "drizzle-orm/sqlite-core";\nexport const t = sqliteTable;\n`,
+      "db/index.ts": `import Database from "better-sqlite3";\nexport const db = new Database("app.db");\n`,
+    });
+    expect(s.map((f) => `${f.subject}|${f.detector}`)).toEqual(["SQLite|data-store/sqlite"]);
+    expect(s[0]!.locations).toEqual([
+      { file: "db/index.ts", line: 1 },
+      { file: "db/schema.ts", line: 1 },
+    ]);
+  });
+
+  it("asks where the SQLite database is hosted, with the existing question", () => {
+    const u = evidenceOf({ "package.json": pkg(["better-sqlite3"]), "src/db.ts": `import Database from "better-sqlite3";\nexport const db = new Database("x.db");\n` }).unknowns;
+    expect(u.map((x) => x.id)).toEqual(["UQ-retention-deletion", "UQ-sqlite-hosting"]);
+    expect(u[1]!.question).toBe("Where is the SQLite database hosted, and by whom?");
+  });
+
+  it.each(["better-sqlite3", "sqlite3", "@libsql/client", "typeorm", "knex", "sequelize"])("ignores %s named in a comment, a string or a test file", (dep) => {
+    const code = `import x from "${dep}";\nexport const y = x;\n`;
+    const s = stores({
+      "package.json": pkg([dep]),
+      "src/db.ts": `// import x from "${dep}";\n/* require("${dep}") */\nexport const note = "we could use ${dep} here";\nexport const lazy = "import x from '${dep}'";\n`,
+      "src/db.test.ts": code,
+      "test/db.ts": code,
+      "__mocks__/db.ts": code,
+    });
+    expect(s).toEqual([]);
+  });
+
+  it("does not take a near-miss package for one of these", () => {
+    const s = stores({
+      "package.json": pkg(["sqlite", "knex-utils", "sequelize-typescript", "typeorm-naming-strategies"]),
+      "src/db.ts": `import { open } from "sqlite";\nimport k from "knex-utils";\nimport { Model } from "sequelize-typescript";\nimport n from "typeorm-naming-strategies";\nexport const x = [open, k, Model, n];\n`,
+    });
+    expect(s).toEqual([]);
+  });
+});
+
 describe("secret handling", () => {
   it("records secret-named environment variables by name only", () => {
     const e = evidenceOf({ "package.json": pkg(), "a.ts": `export const k = process.env.STRIPE_SECRET_KEY;\nexport const d = process.env.DATABASE_URL;\n` });

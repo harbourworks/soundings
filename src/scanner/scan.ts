@@ -63,7 +63,7 @@ function unanalysedQuestion(unsupported: ReturnType<typeof unsupportedCode>): Un
 
 const SPECIFIC_SQL = new Set(["PostgreSQL", "MySQL", "Supabase Postgres", "SQLite", "SQL Server", "CockroachDB", "Oracle"]);
 /** Facts that only know "some SQL database", from a library or framework that can sit on any engine. */
-const GENERIC_SQL = new Set(["SQL database (SQLAlchemy)", "SQL database (Prisma)", "SQL database (Drizzle)", "SQL database (Django)"]);
+const GENERIC_SQL = new Set(["SQL database (SQLAlchemy)", "SQL database (Prisma)", "SQL database (Drizzle)", "SQL database (Django)", "SQL database (TypeORM)", "SQL database (Knex)", "SQL database (Sequelize)"]);
 /** ORMs talk to a database through a driver. Earlier in this list wins when two report the same engine. */
 const ORMS = ["data-store/prisma", "data-store/drizzle", "data-store/django"];
 /** A driver import ranks above any ORM; -1 sorts first. */
@@ -71,7 +71,7 @@ const ormRank = (f: FactDraft) => ORMS.indexOf(f.detector);
 
 /**
  * Drops a fact when a better one already says the same thing: a connection string for a store a
- * client import already shows, a generic SQL fact (SQLAlchemy, Prisma or Drizzle without an engine)
+ * client import already shows, a generic SQL fact (SQLAlchemy, TypeORM, Knex, Sequelize, or Prisma or Drizzle without an engine)
  * once a specific SQL engine is known, and an ORM's fact when a driver (or another ORM) already
  * reports the same engine. That last one is the same database reached two ways, so its locations
  * are kept on the fact that stays.

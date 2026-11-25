@@ -103,6 +103,76 @@
       "file": "tests/bookings.test.ts",
       "contains": "@prisma/client",
       "why": "A .test.ts file importing Prisma is not a use by the app."
+    },
+    {
+      "kind": "data_store",
+      "subject": "SQLite",
+      "file": "lib/history.ts",
+      "contains": "better-sqlite3",
+      "why": "Named only in comments and strings about a past setup; the app uses Prisma."
+    },
+    {
+      "kind": "data_store",
+      "subject": "SQL database (Knex)",
+      "file": "lib/history.ts",
+      "contains": "import knex from \"knex\"",
+      "why": "Named only in comments and strings about a past setup; the app uses Prisma."
+    },
+    {
+      "kind": "data_store",
+      "subject": "SQL database (Sequelize)",
+      "file": "lib/history.ts",
+      "contains": "require(\"sequelize\")",
+      "why": "Named only in comments and strings about a past setup; the app uses Prisma."
+    },
+    {
+      "kind": "data_store",
+      "subject": "SQL database (TypeORM)",
+      "file": "lib/history.ts",
+      "contains": "typeorm",
+      "why": "Named only in comments and strings about a past setup; the app uses Prisma."
+    },
+    {
+      "kind": "data_store",
+      "subject": "SQLite",
+      "file": "tests/legacy.test.ts",
+      "contains": "from \"better-sqlite3\"",
+      "why": "Imported only in a test file; tests describe how code is checked, not how the product runs."
+    },
+    {
+      "kind": "data_store",
+      "subject": "SQLite",
+      "file": "tests/legacy.test.ts",
+      "contains": "from \"sqlite3\"",
+      "why": "Imported only in a test file; tests describe how code is checked, not how the product runs."
+    },
+    {
+      "kind": "data_store",
+      "subject": "SQLite",
+      "file": "tests/legacy.test.ts",
+      "contains": "from \"@libsql/client\"",
+      "why": "Imported only in a test file; tests describe how code is checked, not how the product runs."
+    },
+    {
+      "kind": "data_store",
+      "subject": "SQL database (TypeORM)",
+      "file": "tests/legacy.test.ts",
+      "contains": "from \"typeorm\"",
+      "why": "Imported only in a test file; tests describe how code is checked, not how the product runs."
+    },
+    {
+      "kind": "data_store",
+      "subject": "SQL database (Knex)",
+      "file": "tests/legacy.test.ts",
+      "contains": "from \"knex\"",
+      "why": "Imported only in a test file; tests describe how code is checked, not how the product runs."
+    },
+    {
+      "kind": "data_store",
+      "subject": "SQL database (Sequelize)",
+      "file": "tests/legacy.test.ts",
+      "contains": "from \"sequelize\"",
+      "why": "Imported only in a test file; tests describe how code is checked, not how the product runs."
     }
   ]
 }

@@ -89,7 +89,21 @@ export interface StoreSpec {
   packages: string[];
   /** Python modules for the same store. */
   pyModules?: string[];
+  /** The claim, when "The app stores data in <subject>." would say more than an import shows. */
+  claim?: string;
+  /** Defaults to high. */
+  confidence?: "high" | "medium";
 }
+
+/** An ORM or query builder that can sit on more than one engine: a generic fact, dropped once a specific engine is known. */
+const sqlLayer = (slug: string, name: string, confidence: "high" | "medium" = "high"): StoreSpec => ({
+  slug,
+  subject: `SQL database (${name})`,
+  engine: "sql",
+  packages: [slug],
+  claim: `The app uses ${name}, but its imports don't show which database engine it connects to.`,
+  confidence,
+});
 
 export const STORES: StoreSpec[] = [
   { slug: "postgres", subject: "PostgreSQL", engine: "postgres", packages: ["pg", "postgres", "pg-promise"], pyModules: ["psycopg", "psycopg2", "asyncpg"] },
@@ -98,6 +112,12 @@ export const STORES: StoreSpec[] = [
   { slug: "firebase", subject: "Firebase (Firestore)", engine: "firestore", packages: ["firebase/firestore", "firebase-admin/firestore", "firebase-admin"], pyModules: ["firebase_admin.firestore", "google.cloud.firestore"] },
   { slug: "mysql", subject: "MySQL", engine: "mysql", packages: ["mysql", "mysql2"], pyModules: ["pymysql", "mysql.connector", "aiomysql", "MySQLdb"] },
   { slug: "sqlalchemy", subject: "SQL database (SQLAlchemy)", engine: "sql", packages: [], pyModules: ["sqlalchemy"] },
+  // An import shows SQLite is used, not what is kept in it.
+  { slug: "sqlite", subject: "SQLite", engine: "sqlite", packages: ["better-sqlite3", "sqlite3", "@libsql/client"], pyModules: ["sqlite3"], claim: "The app uses SQLite." },
+  // TypeORM also runs on MongoDB, so "SQL database" is only medium confidence for it.
+  sqlLayer("typeorm", "TypeORM", "medium"),
+  sqlLayer("knex", "Knex"),
+  sqlLayer("sequelize", "Sequelize"),
   { slug: "azure-blob", subject: "Azure Blob Storage", engine: "object-storage", packages: ["@azure/storage-blob"], pyModules: ["azure.storage.blob"] },
   { slug: "cosmos", subject: "Azure Cosmos DB", engine: "cosmos", packages: ["@azure/cosmos"], pyModules: ["azure.cosmos"] },
   { slug: "azure-search", subject: "Azure AI Search", engine: "search-index", packages: ["@azure/search-documents"], pyModules: ["azure.search.documents"] },
@@ -111,9 +131,9 @@ function storeDetector(spec: StoreSpec): Detector {
   const fact = (file: string, line?: number): FactDraft => ({
     kind: "data_store",
     subject: spec.subject,
-    claim: `The app stores data in ${spec.subject}.`,
+    claim: spec.claim ?? `The app stores data in ${spec.subject}.`,
     attributes: { engine: spec.engine },
-    confidence: "high",
+    confidence: spec.confidence ?? "high",
     detector: id,
     key: file,
     locations: [{ file, ...(line ? { line } : {}) }],

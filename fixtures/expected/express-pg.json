@@ -231,6 +231,16 @@
         "src/models/openrouter.ts"
       ],
       "confidence": "high"
+    },
+    {
+      "kind": "data_store",
+      "subject": "SQLite",
+      "detector": "data-store/sqlite",
+      "key": "src/cache.ts",
+      "files": [
+        "src/cache.ts"
+      ],
+      "confidence": "high"
     }
   ],
   "unknowns": [
@@ -245,7 +255,8 @@
     "openrouter-data-use",
     "openrouter-routed-vendors",
     "postgresql-hosting",
-    "retention-deletion"
+    "retention-deletion",
+    "sqlite-hosting"
   ],
   "decoys": [
     {
@@ -261,6 +272,13 @@
       "file": "src/server.ts",
       "contains": "pino",
       "why": "A logging library running in the app, not a third-party service that receives data."
+    },
+    {
+      "kind": "data_store",
+      "subject": "SQL database (TypeORM)",
+      "file": "src/tickets.ts",
+      "contains": "from \"typeorm\"",
+      "why": "TypeORM is how the code reaches PostgreSQL through pg. It is reported as the specific engine, not as a second, generic store, and the engine is never read from the connection options."
     }
   ]
 }
