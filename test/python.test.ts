@@ -347,3 +347,46 @@ describe("django databases", () => {
     expect(generic.map((f) => f.subject)).toEqual(["PostgreSQL"]);
   });
 });
+
+describe("python sqlite3", () => {
+  const stores = (files: Record<string, string>) => evidenceOf(files).facts.filter((f) => f.kind === "data_store" && f.claimType !== "not-found");
+  const example = 'import sqlite3\n\ndef save(note):\n    conn = sqlite3.connect("notes.db")\n    conn.execute("INSERT INTO notes VALUES (?)", (note,))\n';
+
+  it("reports SQLite at the import line for the standard-library sqlite3 module", () => {
+    const [f, ...rest] = stores({ "app/notes.py": example });
+    expect(rest).toEqual([]);
+    expect(f).toMatchObject({ subject: "SQLite", detector: "data-store/sqlite", confidence: "high", claimType: "observed", attributes: { engine: "sqlite" } });
+    expect(f!.claim).toBe("The app uses SQLite.");
+    expect(f!.locations).toEqual([{ file: "app/notes.py", line: 1 }]);
+  });
+
+  it.each([
+    ["from sqlite3 import connect\n", 1],
+    ["import os\nimport sqlite3 as lite\n", 2],
+    ["import json, sqlite3\n", 1],
+    ["def open_db():\n    import sqlite3\n    return sqlite3.connect(':memory:')\n", 2],
+  ])("reads %j", (code, line) => {
+    expect(stores({ "app/db.py": code }).map((f) => `${f.subject}|${f.locations?.[0]?.line}`)).toEqual([`SQLite|${line}`]);
+  });
+
+  it("ignores sqlite3 in a docstring, a comment, a string or a test file", () => {
+    const s = stores({
+      "app/notes.py": '"""Notes storage. We could use sqlite3 here."""\n# import sqlite3\nBACKEND = "import sqlite3"\n',
+      "tests/test_notes.py": example,
+      "app/test_db.py": example,
+      "conftest.py": example,
+    });
+    expect(s).toEqual([]);
+  });
+
+  it("does not take a near-miss module for sqlite3", () => {
+    expect(stores({ "app/db.py": "import sqlite_utils\nimport pysqlite3_helpers\nfrom mysqlite3 import x\n" })).toEqual([]);
+  });
+
+  it("is one SQLite store alongside Django settings that name sqlite3, and drops SQLAlchemy's generic fact", () => {
+    const settings = 'DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": "db.sqlite3"}}\n';
+    const s = stores({ "site/settings.py": settings, "app/cache.py": "import sqlite3\n", "app/orm.py": "import sqlalchemy\n" });
+    expect(s.map((f) => `${f.subject}|${f.detector}`)).toEqual(["SQLite|data-store/sqlite"]);
+    expect(s[0]!.locations).toEqual([{ file: "app/cache.py", line: 1 }, { file: "site/settings.py", line: 1 }]);
+  });
+});

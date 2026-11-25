@@ -16,6 +16,8 @@
     { "kind": "data_store", "subject": "SQLite", "file": "tests/settings.py", "contains": "django.db.backends.sqlite3", "why": "Test settings: tests describe how code is checked, not where the product stores data." },
     { "kind": "data_store", "subject": "SQLite", "file": "config/settings/test.py", "contains": "django.db.backends.sqlite3", "why": "Test settings in a settings package: they say how tests run, not where the product stores data." },
     { "kind": "data_store", "subject": "SQL database (Django)", "file": "orders/models.py", "contains": "from django.db import models", "why": "The settings name the engine, so the project is reported as PostgreSQL, not as a second, generic store." },
-    { "kind": "data_store", "subject": "No database found", "file": "orders/migrations/0001_initial.py", "contains": "migrations.CreateModel", "why": "The project has Django models and migrations, so it must never be reported as having no database." }
+    { "kind": "data_store", "subject": "No database found", "file": "orders/migrations/0001_initial.py", "contains": "migrations.CreateModel", "why": "The project has Django models and migrations, so it must never be reported as having no database." },
+    { "kind": "data_store", "subject": "SQLite", "file": "orders/export.py", "contains": "We could use sqlite3 here", "why": "A docstring, a commented-out import and a string name sqlite3; the module is never imported in product code." },
+    { "kind": "data_store", "subject": "SQLite", "file": "tests/test_export.py", "contains": "import sqlite3", "why": "Imported only in a test file; tests describe how code is checked, not how the product runs." }
   ]
 }

@@ -8,6 +8,12 @@
   },
   "devDependencies": {
     "prisma": "6.0.0",
-    "vitest": "2.0.0"
+    "vitest": "2.0.0",
+    "better-sqlite3": "11.5.0",
+    "sqlite3": "5.1.7",
+    "@libsql/client": "0.14.0",
+    "typeorm": "0.3.20",
+    "knex": "3.1.0",
+    "sequelize": "6.37.5"
   }
 }
