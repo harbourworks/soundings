@@ -1,8 +1,8 @@
 import type { FactDraft } from "../../evidence/build.js";
 import { walkAst } from "../../core/js.js";
 import type { Node } from "@babel/types";
-import { calls, chainOf, dynamicRoots, endsWith, firstStringProperty, lineOf, localBinding, namedImports, paramNames, requestVariables } from "../ast.js";
-import { importsModule, importsPy } from "../context.js";
+import { calls, chainOf, dynamicRoots, endsWith, firstStringProperty, lineOf, localBinding, namedImports, paramNames, requestVariables, setsProperty } from "../ast.js";
+import { importsModule, importsPy, packageRoot } from "../context.js";
 import { aiPayload, firstStringKwarg, withinModule } from "../python/parse.js";
 import type { Detector, JsFile, ScanContext } from "../types.js";
 
@@ -108,6 +108,24 @@ function runsOn(f: JsFile): "browser" | "server" | "unclear" {
   return "unclear";
 }
 
+/**
+ * A file that imports the SDK and has no `model` property at all (the file that makes the client, or
+ * one that only imports a helper) is the same use of it as the file that names the model. When the
+ * files using one SDK from one place name a single model string between them, those files get it
+ * too, so they merge into one fact. A file that sets `model` to something other than a string (a
+ * variable, an env var, an expression) uses a model the scan can't see, so it keeps its own fact with
+ * no model. Two different models stay apart.
+ */
+function shareModel(uses: Array<{ draft: FactDraft; setsModel: boolean }>): FactDraft[] {
+  const use = (d: FactDraft) => `${String(d.attributes?.sdk)}|${String(d.attributes?.runsOn)}|${d.claim}`;
+  const models = new Map<string, Set<string>>();
+  for (const { draft: d } of uses) if (typeof d.attributes?.model === "string") models.set(use(d), (models.get(use(d)) ?? new Set()).add(d.attributes.model));
+  return uses.map(({ draft: d, setsModel }) => {
+    const named = models.get(use(d));
+    return !setsModel && d.attributes?.model === undefined && named?.size === 1 ? { ...d, attributes: { ...d.attributes, model: [...named][0]! } } : d;
+  });
+}
+
 function aiProviderDetector(spec: ProviderSpec): Detector {
   const library = spec.library ?? "SDK";
   return {
@@ -130,28 +148,31 @@ function aiProviderDetector(spec: ProviderSpec): Detector {
             locations: [{ file: f.file, ...(imp?.line ? { line: imp.line } : {}) }],
           };
         }),
-      ...ctx.js
-        .filter((f) => providersIn(f).includes(spec))
-        .map((f): FactDraft => {
-          const imp = spec.packages.map((p) => importsModule(f, p)).find(Boolean);
-          const model = firstStringProperty(f.ast, "model");
-          const where = runsOn(f);
-          return {
-            kind: "ai_provider",
-            subject: spec.subject,
-            claim: withCaveat(
-              spec,
-              where === "browser"
-                ? `The browser code imports the ${spec.subject} ${library}.`
-                : `The app uses the ${spec.subject} ${library}${where === "server" ? " from server code" : ""}.`,
-            ),
-            attributes: { sdk: imp?.source ?? spec.packages[0]!, runsOn: where, ...(model ? { model } : {}) },
-            confidence: "high",
-            detector: spec.id,
-            key: f.file,
-            locations: [{ file: f.file, ...(imp?.line ? { line: imp.line } : {}) }],
-          };
-        }),
+      ...shareModel(
+        ctx.js
+          .filter((f) => providersIn(f).includes(spec))
+          .map((f): { draft: FactDraft; setsModel: boolean } => {
+            const imp = spec.packages.map((p) => importsModule(f, p)).find(Boolean);
+            const model = firstStringProperty(f.ast, "model");
+            const where = runsOn(f);
+            const draft: FactDraft = {
+              kind: "ai_provider",
+              subject: spec.subject,
+              claim: withCaveat(
+                spec,
+                where === "browser"
+                  ? `The browser code imports the ${spec.subject} ${library}.`
+                  : `The app uses the ${spec.subject} ${library}${where === "server" ? " from server code" : ""}.`,
+              ),
+              attributes: { sdk: (imp && packageRoot(imp.source)) ?? spec.packages[0]!, runsOn: where, ...(model ? { model } : {}) },
+              confidence: "high",
+              detector: spec.id,
+              key: f.file,
+              locations: [{ file: f.file, ...(imp?.line ? { line: imp.line } : {}) }],
+            };
+            return { draft, setsModel: setsProperty(f.ast, "model") };
+          }),
+      ),
     ],
   };
 }

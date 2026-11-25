@@ -278,3 +278,24 @@ export function firstStringProperty(ast: Node, name: string): string | undefined
   });
   return found;
 }
+
+/**
+ * Whether the file sets a property called `name` anywhere, whatever its value: `{ name: … }`,
+ * the shorthand `{ name }`, `{ "name": … }` or `x.name = …`.
+ */
+export function setsProperty(ast: Node, name: string): boolean {
+  let found = false;
+  walkAst(ast, (n) => {
+    if (found) return false;
+    if ((n.type === "ObjectProperty" || n.type === "ObjectMethod") && !n.computed) {
+      const key = n.key.type === "Identifier" ? n.key.name : n.key.type === "StringLiteral" ? n.key.value : null;
+      if (key === name) found = true;
+    }
+    if (n.type === "AssignmentExpression" && n.left.type === "MemberExpression") {
+      const p = n.left.property;
+      if ((!n.left.computed && p.type === "Identifier" && p.name === name) || (p.type === "StringLiteral" && p.value === name)) found = true;
+    }
+    return undefined;
+  });
+  return found;
+}

@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { parseJs } from "../src/core/js.js";
+import { setsProperty } from "../src/scanner/ast.js";
+import { packageRoot } from "../src/scanner/context.js";
 import { cleanupProjects, evidenceOf, factsOf, pkg, rand } from "./helpers.js";
 
 cleanupProjects();
@@ -71,6 +74,182 @@ describe("AI providers", () => {
     const f = e.facts.find((x) => x.detector === "ai-provider/groq-sdk");
     expect(f?.locations).toEqual([{ file: "src/ai.ts", line: 3 }]);
     expect(f?.attributes.sdk).toBe("groq-sdk");
+  });
+
+  it.each([
+    ["openai", "openai"],
+    ["openai/helpers/zod", "openai"],
+    ["openai/uploads", "openai"],
+    ["@ai-sdk/openai", "@ai-sdk/openai"],
+    ["@ai-sdk/openai/internal", "@ai-sdk/openai"],
+    ["@scope/pkg/sub", "@scope/pkg"],
+    ["@scope/pkg/sub/deeper", "@scope/pkg"],
+    ["./client", undefined],
+    ["../lib/openai", undefined],
+    ["/abs/openai", undefined],
+  ])("reads the package root of %s as %s", (source, root) => {
+    expect(packageRoot(source)).toBe(root);
+  });
+
+  it("records the package root as the SDK, so subpath imports of one SDK are one fact with every location", () => {
+    const e = evidenceOf({
+      "package.json": pkg(["openai"]),
+      "src/client.ts": `import OpenAI from "openai";\nexport const openai = new OpenAI();\n`,
+      "src/extract.ts": `import { zodResponseFormat } from "openai/helpers/zod";\nexport const f = zodResponseFormat;\n`,
+      "src/upload.ts": `import { toFile } from "openai/uploads";\nexport const t = toFile;\n`,
+    });
+    const facts = e.facts.filter((f) => f.kind === "ai_provider");
+    expect(facts.map((f) => ({ subject: f.subject, sdk: f.attributes.sdk, locations: f.locations }))).toEqual([
+      {
+        subject: "OpenAI",
+        sdk: "openai",
+        locations: [
+          { file: "src/client.ts", line: 1 },
+          { file: "src/extract.ts", line: 1 },
+          { file: "src/upload.ts", line: 1 },
+        ],
+      },
+    ]);
+  });
+
+  it("merges files that name no model into the one model the others name", () => {
+    const e = evidenceOf({
+      "package.json": pkg(["openai"]),
+      "src/client.ts": `import OpenAI from "openai";\nexport const openai = new OpenAI();\n`,
+      "src/extract.ts": `import { zodResponseFormat } from "openai/helpers/zod";\nimport { openai } from "./client";\nexport const run = (text: string) => openai.chat.completions.create({ model: "gpt-4o-mini", messages: [{ role: "user", content: text }], response_format: zodResponseFormat });\n`,
+      "src/upload.ts": `import { toFile } from "openai/uploads";\nexport const t = toFile;\n`,
+    });
+    const facts = e.facts.filter((f) => f.kind === "ai_provider");
+    expect(facts.map((f) => ({ model: f.attributes.model, files: f.locations.map((l) => l.file) }))).toEqual([
+      { model: "gpt-4o-mini", files: ["src/client.ts", "src/extract.ts", "src/upload.ts"] },
+    ]);
+  });
+
+  it("does not give the one string model to a file whose model the scan can't read (an env var)", () => {
+    const e = evidenceOf({
+      "package.json": pkg(["openai"]),
+      "src/chat.ts": `import OpenAI from "openai";\nconst openai = new OpenAI();\nexport const chat = (t: string) => openai.chat.completions.create({ model: "gpt-4o", messages: [{ role: "user", content: t }] });\n`,
+      "src/embed.ts": `import OpenAI from "openai";\nconst openai = new OpenAI();\nconst EMBED_MODEL = process.env.EMBED_MODEL!;\nexport const embed = (t: string) => openai.embeddings.create({ model: EMBED_MODEL, input: t });\n`,
+    });
+    const facts = e.facts.filter((f) => f.kind === "ai_provider");
+    expect(facts.map((f) => [f.attributes.model ?? null, f.locations.map((l) => l.file)]).sort()).toEqual(
+      [
+        ["gpt-4o", ["src/chat.ts"]],
+        [null, ["src/embed.ts"]],
+      ].sort(),
+    );
+  });
+
+  it.each([
+    ["a shorthand property", `const model = pick();\nexport const o = { model };\n`],
+    ["an expression", `export const o = { model: "gpt-" + process.env.SIZE };\n`],
+    ["a template string", "export const o = { model: `gpt-${process.env.SIZE}` };\n"],
+    ["an assigned property", `const params: Record<string, string> = {};\nparams.model = process.env.M!;\nexport const p = params;\n`],
+  ])("keeps a file whose model is %s as its own fact with no model", (_label, body) => {
+    const e = evidenceOf({
+      "package.json": pkg(["openai"]),
+      "src/chat.ts": `import OpenAI from "openai";\nexport const c = { model: "gpt-4o" };\n`,
+      "src/other.ts": `import OpenAI from "openai";\n${body}`,
+    });
+    const facts = e.facts.filter((f) => f.kind === "ai_provider");
+    expect(facts.map((f) => [f.attributes.model ?? null, f.locations.map((l) => l.file)]).sort()).toEqual(
+      [
+        ["gpt-4o", ["src/chat.ts"]],
+        [null, ["src/other.ts"]],
+      ].sort(),
+    );
+  });
+
+  it("still gives the model to a file that mentions `model:` only in a comment or a string", () => {
+    const e = evidenceOf({
+      "package.json": pkg(["openai"]),
+      "src/chat.ts": `import OpenAI from "openai";\nexport const c = { model: "gpt-4o" };\n`,
+      "src/client.ts": `import OpenAI from "openai";\n// model: process.env.MODEL\nexport const hint = "set model: in chat.ts";\nexport const openai = new OpenAI();\n`,
+    });
+    const facts = e.facts.filter((f) => f.kind === "ai_provider");
+    expect(facts.map((f) => ({ model: f.attributes.model, files: f.locations.map((l) => l.file) }))).toEqual([
+      { model: "gpt-4o", files: ["src/chat.ts", "src/client.ts"] },
+    ]);
+  });
+
+  it.each([
+    [`const o = { model: "gpt-4o" };`, true],
+    [`const o = { model: process.env.M };`, true],
+    [`const model = 1; const o = { model };`, true],
+    [`const o = { "model": x };`, true],
+    [`const o = { model() { return 1; } };`, true],
+    [`o.model = x;`, true],
+    [`o["model"] = x;`, true],
+    [`const o = { models: x, modelName: y };`, false],
+    [`const k = "model"; const o = { [k]: x };`, false],
+    [`o[model] = x;`, false],
+    [`const model = "gpt-4o"; use(model); // model: x`, false],
+  ])("setsProperty(%j, \"model\") is %s", (code, expected) => {
+    expect(setsProperty(parseJs("a.ts", code)!, "model")).toBe(expected);
+  });
+
+  it("keeps facts that name two different models apart, and gives neither model to a file that names none", () => {
+    const e = evidenceOf({
+      "package.json": pkg(["openai"]),
+      "src/client.ts": `import OpenAI from "openai";\nexport const openai = new OpenAI();\n`,
+      "src/chat.ts": `import OpenAI from "openai";\nexport const o = { model: "gpt-4o" };\n`,
+      "src/embed.ts": `import OpenAI from "openai";\nexport const o = { model: "text-embedding-3-small" };\n`,
+    });
+    const facts = e.facts.filter((f) => f.kind === "ai_provider");
+    expect(facts.map((f) => [f.attributes.model ?? null, f.locations.map((l) => l.file)]).sort()).toEqual(
+      [
+        [null, ["src/client.ts"]],
+        ["gpt-4o", ["src/chat.ts"]],
+        ["text-embedding-3-small", ["src/embed.ts"]],
+      ].sort(),
+    );
+  });
+
+  it("does not give a server file's model to the browser code", () => {
+    const e = evidenceOf({
+      "package.json": pkg(["openai"]),
+      "src/server.ts": `import OpenAI from "openai";\nexport const o = { model: "gpt-4o" };\n`,
+      "components/Chat.tsx": `"use client";\nimport OpenAI from "openai";\nexport const c = new OpenAI();\n`,
+    });
+    const browser = e.facts.find((f) => f.kind === "ai_provider" && f.attributes.runsOn === "browser");
+    expect(browser?.attributes.model).toBeUndefined();
+    expect(e.facts.filter((f) => f.kind === "ai_provider")).toHaveLength(2);
+  });
+
+  it("records a scoped SDK imported by a subpath under its scoped root", () => {
+    const e = evidenceOf({
+      "package.json": pkg(["@anthropic-ai/sdk"]),
+      "src/a.ts": `import Anthropic from "@anthropic-ai/sdk";\nexport const c = new Anthropic();\n`,
+      "src/b.ts": `import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";\nexport type M = MessageParam;\n`,
+    });
+    const facts = e.facts.filter((f) => f.kind === "ai_provider");
+    expect(facts.map((f) => [f.attributes.sdk, f.locations.length])).toEqual([["@anthropic-ai/sdk", 2]]);
+  });
+
+  it("keeps two different packages for one provider as two facts", () => {
+    const e = evidenceOf({
+      "package.json": pkg(["openai", "@ai-sdk/openai"]),
+      "src/a.ts": `import OpenAI from "openai";\nexport const c = new OpenAI();\n`,
+      "src/b.ts": `import { openai } from "@ai-sdk/openai";\nexport const p = openai;\n`,
+    });
+    expect(e.facts.filter((f) => f.kind === "ai_provider").map((f) => f.attributes.sdk).sort()).toEqual(["@ai-sdk/openai", "openai"]);
+  });
+
+  it("does not read a relative import named like an SDK, or an SDK subpath in a comment or a string, as the SDK", () => {
+    const f = factsOf({
+      "package.json": pkg(["openai"]),
+      "src/a.ts": `import { openai } from "./openai";\nimport { helper } from "../openai/helpers/zod";\nexport const x = [openai, helper];\n`,
+      "src/b.ts": `// import { zodResponseFormat } from "openai/helpers/zod";\nexport const note = 'import { toFile } from "openai/uploads"';\n`,
+    });
+    expect(f.filter((x) => x.startsWith("ai_provider") || x.startsWith("data_flow"))).toEqual([]);
+  });
+
+  it("keeps the Python module as the SDK, unchanged", () => {
+    const e = evidenceOf({
+      "requirements.txt": "google-generativeai==0.8.0\n",
+      "app/a.py": "import google.generativeai as genai\ngenai.configure()\n",
+    });
+    expect(e.facts.find((f) => f.kind === "ai_provider")?.attributes.sdk).toBe("google.generativeai");
   });
 
   it("does not report a decoy file that names groq-sdk and @mistralai/mistralai only in a comment and a string", () => {

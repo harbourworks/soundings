@@ -77,6 +77,16 @@ export function buildContext(project: ProjectFiles): ScanContext {
 export const importsModule = (f: JsFile, source: string): ImportInfo | undefined =>
   f.imports.find((i) => i.source === source || (source.endsWith("/") && i.source.startsWith(source)) || i.source.startsWith(`${source}/`));
 
+/**
+ * The package an import specifier comes from: `openai/helpers/zod` is `openai`, `@scope/pkg/sub` is
+ * `@scope/pkg`. A relative or absolute path is the project's own file, not a package, so it has none.
+ */
+export function packageRoot(source: string): string | undefined {
+  if (source.startsWith(".") || source.startsWith("/")) return undefined;
+  const parts = source.split("/");
+  return source.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
+}
+
 /** The first import in a Python file that brings in one of `modules` (or something inside it). */
 export const importsPy = (f: PyFile, ...modules: string[]): PyImport | undefined =>
   f.imports.find((imp) => importCandidates(imp).some((c) => modules.some((m) => withinModule(c, m))));

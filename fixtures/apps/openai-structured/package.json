@@ -1,0 +1,10 @@
+{
+  "name": "contact-extractor",
+  "private": true,
+  "dependencies": {
+    "openai": "4.80.0",
+    "zod": "3.23.0",
+    "@anthropic-ai/sdk": "0.30.0",
+    "@mistralai/mistralai": "1.0.0"
+  }
+}

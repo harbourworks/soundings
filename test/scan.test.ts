@@ -11,7 +11,7 @@ cleanupProjects();
 
 const ROOT = resolve(__dirname, "../fixtures");
 const NOW = new Date("2026-11-11T11:30:00Z");
-const names = ["notes-saas", "express-pg", "static-site", "fastapi-rag", "next-prisma", "hono-drizzle", "django-pg"];
+const names = ["notes-saas", "express-pg", "static-site", "fastapi-rag", "next-prisma", "hono-drizzle", "django-pg", "openai-structured"];
 
 describe.each(names)("scanning the %s fixture", (name) => {
   const key = AnswerKey.parse(JSON.parse(readFileSync(join(ROOT, "expected", `${name}.json`), "utf8")));
@@ -65,6 +65,28 @@ describe("OpenAI prompts in the notes-saas fixture", () => {
 
   it("does not report the fixed-prompt images.generate and responses.parse calls", () => {
     expect(flows().flatMap((f) => f.locations).filter((l) => l.file === "lib/sample-content.ts")).toEqual([]);
+  });
+});
+
+describe("OpenAI subpath imports in the openai-structured fixture", () => {
+  // The answer key can't count facts or locations, so pin them: three files import `openai`,
+  // `openai/helpers/zod` and `openai/uploads`, which is one SDK. src/alternatives.ts names subpaths
+  // only in comments and strings and is a decoy.
+  const providers = () => scan({ root: join(ROOT, "apps", "openai-structured"), now: NOW }).evidence.facts.filter((f) => f.kind === "ai_provider");
+
+  it("reports one OpenAI fact with all three import locations and the package root as the SDK", () => {
+    expect(providers().map((f) => ({ subject: f.subject, sdk: f.attributes.sdk, model: f.attributes.model, locations: f.locations }))).toEqual([
+      {
+        subject: "OpenAI",
+        sdk: "openai",
+        model: "gpt-4o-mini",
+        locations: [
+          { file: "src/client.ts", line: 1 },
+          { file: "src/extract.ts", line: 1 },
+          { file: "src/upload.ts", line: 1 },
+        ],
+      },
+    ]);
   });
 });
 
